@@ -811,7 +811,7 @@ static void input_method_keyboard_key(
 		uint32_t key,
 		uint32_t state)
 {
-	fprintf(stderr,"input_method_keyboard_key v2 %u %u %u %u\n",serial,time,key,state);
+	// fprintf(stderr,"input_method_keyboard_key v2 %u %u %u %u\n",serial,time,key,state);
 	if(!keyboard->state)
 	{
 		zwp_virtual_keyboard_v1_key(keyboard->virtual_keyboard_v1,time,key,state);

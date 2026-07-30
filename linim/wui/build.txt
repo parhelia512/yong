@@ -1,0 +1,120 @@
+// vim: set ft=javascript
+
+const DIRS=['l64'];
+env('VPATH+=$(TOPDIR)/linim/wui');
+env('VPATH+=$(TOPDIR)/linim/wui/protocols');
+env('CFLAGS+=-I$(TOPDIR)/linim/wui');
+env('CFLAGS+=-I$(TOPDIR)/linim/wui/protocols');
+env("CFLAGS+=$(PICFLAGS) $(LLIB_CFLAGS)");
+env("CFLAGS+=-Wno-deprecated-declarations");
+env("CFLAGS+=`pkg-config --cflags glib-2.0 gio-2.0 cairo pangocairo`")
+env("LIBS+=`pkg-config --libs glib-2.0 gio-2.0 cairo pangocairo`");
+env("LDFLAGS+=$(LLIB_LDFLAGS)");
+env("LDFLAGS+=-Wl,-rpath='$ORIGIN'");
+env("LIBS+=$(LLIB_LDADD)");
+
+function gen(){
+	const xmls=[
+		'wlr-layer-shell-unstable-v1.xml',
+		'xx-fractional-scale-v2.xml',
+		'stable/xdg-shell/xdg-shell.xml',
+		"stable/tablet/tablet-v2.xml",
+		'staging/cursor-shape/cursor-shape-v1.xml',
+		'staging/fractional-scale/fractional-scale-v1.xml',
+		'stable/viewporter/viewporter.xml',
+		'staging/xdg-system-bell/xdg-system-bell-v1.xml',
+		'staging/ext-data-control/ext-data-control-v1.xml',
+		'staging/alpha-modifier/alpha-modifier-v1.xml',
+	];
+	for(let xml of xmls){
+		var name=basename(xml,'.xml');
+		if(xml.includes('/'))
+			xml='/usr/share/wayland-protocols/'+xml;
+		else
+			xml='protocols/'+xml;
+		
+		var cmd=`wayland-scanner private-code < ${xml} > protocols/${name}.c`;
+		exec(cmd);
+		cmd=`wayland-scanner client-header < ${xml} > protocols/${name}.h`;
+		exec(cmd);
+	}
+}
+
+function run(target){
+	var SRCS=['wui.c'];
+	if(target=='gtk3-x11'){
+		env("CFLAGS+=`pkg-config --cflags gtk+-3.0`")
+		env("LIBS+=`pkg-config --libs gtk+-3.0`")
+	}else{
+		env("LIBS+=`pkg-config --libs wayland-client`")
+	}
+	env("LDFLAGS+=-shared");
+	env("CFLAGS+=-O0");
+	SRCS.push(`wui-${target}.c`);
+	if(target=='wayland'){
+		SRCS.push('wui-buffer.c');
+	}
+	var OBJS=wildcard(SRCS,function(input){
+		return input.replace(/\.c$/,'.o');
+	});
+	begin();
+	cc(SRCS,OBJS);
+	end(function(){
+		ld(OBJS,`libwui-${target}.so`);
+	});
+}
+
+function test(){
+	env('VPATH=$(TOPDIR)/linim/wui/tests');
+	env('CFLAGS-=-shared');
+	var SRCS=['test_wui.c'];
+	var OBJS=wildcard(SRCS,function(input){
+		return input.replace(/\.c$/,'.o');
+	});
+	cc(SRCS,OBJS);
+	end(function(){
+		ld(OBJS,`wui-test`);
+	});
+}
+
+if(target=='proto'){
+	gen();
+} else if(!target || target=='all' || DIRS.includes(target)){
+	for(let path of DIRS){
+		if(target && target!='all' && target!=path)
+			continue;
+		cd(path);
+		push();
+		include("../../../rules.txt");
+		run('gtk3-x11');
+		run('wayland');
+		pop();
+		cd('..');
+	}
+}else if(target=='test'){
+	for(let path of DIRS){
+		cd(path);
+		push();
+		include("../../../rules.txt");
+		test();
+		pop();
+		cd('..');
+	}
+}else if(target=="clean"){
+	rmdir(DIRS,'*.o');
+	rmdir(DIRS,'libwui-gtk3-x11.so');
+	rmdir(DIRS,'libwui-wayland.so');
+	rmdir(DIRS,'wui-test');
+}else if(target=="copy"){
+	exec("install l64/libwui-gtk3-x11.so ../../install/yong/l64/");
+	exec("install l64/libwui-wayland.so ../../install/yong/l64/");
+}else{
+	for(let path of DIRS){
+		cd(path);
+		push();
+		include("../../../rules.txt");
+		run(target);
+		pop();
+		cd('..');
+	}
+}

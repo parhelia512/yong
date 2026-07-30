@@ -16,6 +16,7 @@ typedef struct{
 }KEY_TOOL;
 
 extern uint8_t tip_main;
+extern uint8_t tip_capslock;
 
 static bool tool_switch_im(int i)
 {
@@ -53,6 +54,35 @@ static bool tool_show_speed(void)
 	}
 	return false;
 }
+
+#ifdef _WIN32
+static void tool_show_capslock_next(void *param)
+{
+	int prev=LPTR_TO_INT(param);
+	int state=-1;
+	y_ui_cfg_ctrl("capslock",&state);
+	if(state==-1)
+		return;
+	if(prev!=state)
+		return;
+	y_ui_show_tip(YT("ÇÐ»»µ½£º%s"),YT(state?"´óÐ´":"Ð¡Ð´"));
+}
+
+static bool tool_show_capslock(void)
+{
+	CONNECT_ID *id=y_xim_get_connect();
+	if(!id)
+		return false;
+	if(!id->state)
+		return false;
+	int state=-1;
+	y_ui_cfg_ctrl("capslock",&state);
+	if(state==-1)
+		return false;
+	y_ui_timer_add(100,tool_show_capslock_next,LINT_TO_PTR(state));
+	return false;
+}
+#endif
 
 static void key_cb_append(Y_KEY_TOOL2 *r,int key,int arg,bool (*cb)(int))
 {
@@ -186,6 +216,13 @@ Y_KEY_TOOL2 *y_key_tools2_load(void)
 		kt->is_tool=true;
 	}
 
+#ifdef _WIN32
+	if(tip_main && tip_capslock)
+	{
+		key_cb_append(r,YK_CAPSLOCK,0,(void*)tool_show_capslock);
+	}
+#endif
+
 	l_array_sort(r,l_int_equal);
 
 	// printf("key tool count %d\n",l_array_length(r));
@@ -205,6 +242,7 @@ void y_key_tools2_free(Y_KEY_TOOL2 *kt)
 
 bool y_key_tools2_run(Y_KEY_TOOL2 *kt,int key)
 {
+	key&=~KEYM_CAPS;
 	KEY_TOOL *p=l_array_bsearch(kt,&key,l_int_equal);
 	if(!p)
 		return false;

@@ -14,6 +14,7 @@ typedef struct{
 static char skin_path[64];
 static double ui_scale=1.0;			// ui windows scale to
 static double ui_res_scale=1.0;		// scale used when load images, @win scale=res_scale
+static double ui_surface_scale=1.0;	// scale of surface internal
 
 bool ui_image_path(const char *file,char path[],int where)
 {
@@ -152,6 +153,19 @@ UI_IMAGE ui_image_load_page(int size,UI_COLOR color,bool up)
 #ifdef _WIN32
 
 
+#elif defined(USE_WUI)
+typedef char UI_CHAR;
+UI_WINDOW MainWin;
+
+static void UpdateMainWindow(void)
+{
+	wui->win_redraw(MainWin);
+}
+
+static void ui_region_destroy(UI_REGION r)
+{
+	cairo_region_destroy(r);
+}
 
 #else
 
@@ -210,10 +224,6 @@ typedef struct{
 
 static UI_BTN_REAL btns[UI_BTN_COUNT];
 
-static UI_IMAGE MainWin_bg;
-static UI_COLOR MainWin_bgc;
-static UI_COLOR MainWin_border;
-static UI_RECT MainWin_move;
 static int MainWin_X,MainWin_Y,MainWin_W,MainWin_H;
 static bool MainWin_pos_custom;
 static int MainWin_Drag;
@@ -242,7 +252,7 @@ struct{
 	UI_IMAGE bg[3];
 #ifndef _WIN32
 	UI_REGION rgn[3];
-	GdkRectangle clip;
+	cairo_rectangle_int_t clip;
 #endif
 	UI_COLOR bg_color;
 	UI_COLOR bg_first;
@@ -260,7 +270,7 @@ struct{
 	int x,y;
 	int tran;
 	double line_width;
-	int radius;
+	uint8_t radius[2];
 	uint8_t pad[4];
 	struct{
 		int show;
@@ -271,7 +281,11 @@ struct{
 		UI_IMAGE up[2];
 		UI_IMAGE down[2];
 		int space;
+		int size;
 	}page;
+
+	int shadow_size;
+	UI_COLOR shadow_color;
 }InputTheme;
 
 struct{
@@ -279,6 +293,14 @@ struct{
 	double line_width;
 	int move_style;
 	int radius;
+
+	UI_IMAGE bg;
+	UI_COLOR bg_color;
+	UI_COLOR border;
+	UI_RECT move;
+
+	int shadow_size;
+	UI_COLOR shadow_color;
 }MainTheme;
 
 static bool ui_pt_in_rect(const UI_RECT *rc,int x,int y)
@@ -294,7 +316,7 @@ UI_COLOR ui_color_parse(const char *s)
 	int a=255,r,g,b;
 	if(len==9)
 	{
-		l_sscanf(s,"#%02x%02x%02x%02x",&a,&r,&g,&b);
+		l_sscanf(s,"#%02x%02x%02x%02x",&r,&g,&b,&a);
 	}
 	else if(len==7)
 	{
@@ -316,13 +338,12 @@ static int ui_button_event(UI_WINDOW win,UI_EVENT *event,UI_BTN_REAL **under)
 	UI_BTN_REAL *cur=NULL;
 	UI_BTN_REAL *last=NULL;
 	int dirty=0;
-	int i;
 
 	event->x=(int)(event->x/scale);
 	event->y=(int)(event->y/scale);
 
 	if(event->event!=UI_EVENT_LEAVE)
-	for(i=0;i<UI_BTN_COUNT;i++)
+	for(int i=0;i<UI_BTN_COUNT;i++)
 	{
 		if(btns[i].visible==false)
 		{
@@ -394,7 +415,7 @@ static int ui_button_event(UI_WINDOW win,UI_EVENT *event,UI_BTN_REAL **under)
 			last->state=UI_STATE_NORMAL;
 			dirty++;
 		}
-		for(i=0;i<UI_BTN_COUNT;i++)
+		for(int i=0;i<UI_BTN_COUNT;i++)
 		{
 			if(btns[i].visible==false)
 			{
@@ -443,11 +464,17 @@ int ui_button_update(int id,UI_BUTTON *param)
 	if(MainTheme.scale!=1)
 	{
 		if(param->normal)
+		{
 			btn->bmp[0]=ui_image_load_scale(param->normal,ui_res_scale,param->w,param->h,IMAGE_SKIN);
+		}
 		if(param->down)
+		{
 			btn->bmp[1]=ui_image_load_scale(param->down,ui_res_scale,param->w,param->h,IMAGE_SKIN);
+		}
 		if(param->over)
+		{
 			btn->bmp[2]=ui_image_load_scale(param->over,ui_res_scale,param->w,param->h,IMAGE_SKIN);
+		}
 	}
 	else
 	{
@@ -493,12 +520,12 @@ int ui_button_update(int id,UI_BUTTON *param)
 	{
 		double save=ui_scale;
 		ui_scale=1;
-		btn->font=ui_font_parse(MainWin,param->font,ui_scale);
+		btn->font=ui_font_parse(MainWin,param->font,ui_scale,y_ui_get_scale(1));
 		ui_scale=save;
 	}
 	else
 	{
-		btn->font=param->font?ui_font_parse(MainWin,param->font,ui_scale):0;
+		btn->font=param->font?ui_font_parse(MainWin,param->font,ui_scale,y_ui_get_scale(1)):0;
 	}
 	btn->color=param->color?ui_color_parse(param->color):(UI_COLOR){{0,0,0,0}};
 	btn->click=param->click;
@@ -535,9 +562,9 @@ static void ui_draw_main_win(DRAW_CONTEXT1 *ctx)
 {
 	double scale=MainTheme.scale!=1?ui_scale:1;
 
-	if(MainWin_bg)
+	if(MainTheme.bg)
 	{
-		ui_stretch_image(ctx,MainWin_bg,0,0,MainWin_W,MainWin_H);
+		ui_stretch_image(ctx,MainTheme.bg,0,0,MainWin_W,MainWin_H);
 	}
 	else
 	{
@@ -546,31 +573,31 @@ static void ui_draw_main_win(DRAW_CONTEXT1 *ctx)
 	
 		if(MainTheme.radius)
 		{
-			ui_draw_round_rect(ctx,0,0,w,h,MainTheme.radius,MainWin_border,MainWin_bgc,MainTheme.line_width*scale);
+			ui_draw_round_rect(ctx,0,0,w,h,MainTheme.radius,MainTheme.border,MainTheme.bg_color,MainTheme.line_width*scale);
 		}
 		else
 		{	
-			ui_fill_rect(ctx,0,0,w,h,MainWin_bgc);
-			ui_draw_rect(ctx,0,0,w,h,MainWin_border,MainTheme.line_width*scale);
+			ui_fill_rect(ctx,0,0,w,h,MainTheme.bg_color);
+			ui_draw_rect(ctx,0,0,w,h,MainTheme.border,MainTheme.line_width*scale);
 		}
-		if(MainWin_move.w>=3 && MainWin_move.h>=3)
+		if(MainTheme.move.w>=3 && MainTheme.move.h>=3)
 		{
 			if(MainTheme.move_style==0)
 			{
-				double x=MainWin_move.x*scale+MainWin_move.w*scale/2+0.5;
-				double y=MainWin_move.y*scale+0.5;
+				double x=MainTheme.move.x*scale+MainTheme.move.w*scale/2+0.5;
+				double y=MainTheme.move.y*scale+0.5;
 			
-				ui_draw_line(ctx,x,y,x,MainWin_move.h*scale+y,MainWin_border,MainTheme.line_width*scale);
-				ui_draw_line(ctx,x+2,y,x+2,MainWin_move.h*scale+y,MainWin_border,MainTheme.line_width*scale);
+				ui_draw_line(ctx,x,y,x,MainTheme.move.h*scale+y,MainTheme.border,MainTheme.line_width*scale);
+				ui_draw_line(ctx,x+2,y,x+2,MainTheme.move.h*scale+y,MainTheme.border,MainTheme.line_width*scale);
 			}
 			else
 			{
-				double x=MainWin_move.x*scale+MainWin_move.w*scale/3+0.5;
-				double y=MainWin_move.y*scale+0.5;
-				double d=MainWin_move.w*scale/3;
+				double x=MainTheme.move.x*scale+MainTheme.move.w*scale/3+0.5;
+				double y=MainTheme.move.y*scale+0.5;
+				double d=MainTheme.move.w*scale/3;
 
-				ui_draw_line(ctx,x,y,x,MainWin_move.h*scale+y,MainWin_border,MainTheme.line_width*scale);
-				ui_draw_line(ctx,x+d,y,x+d,MainWin_move.h*scale+y,MainWin_border,MainTheme.line_width*scale);
+				ui_draw_line(ctx,x,y,x,MainTheme.move.h*scale+y,MainTheme.border,MainTheme.line_width*scale);
+				ui_draw_line(ctx,x+d,y,x+d,MainTheme.move.h*scale+y,MainTheme.border,MainTheme.line_width*scale);
 			}				
 		}
 	}
@@ -627,9 +654,9 @@ static void ui_draw_input_win(DRAW_CONTEXT1 *ctx)
 	{
 		double w=InputTheme.RealWidth;
 		double h=InputTheme.RealHeight;
-		if(InputTheme.radius)
+		if(InputTheme.radius[0])
 		{
-			ui_draw_round_rect(ctx,0,0,w,h,InputTheme.radius,InputTheme.border,InputTheme.bg_color,InputTheme.line_width*scale);
+			ui_draw_round_rect(ctx,0,0,w,h,InputTheme.radius[0],InputTheme.border,InputTheme.bg_color,InputTheme.line_width*scale);
 		}
 		else
 		{
@@ -663,7 +690,9 @@ static void ui_draw_input_win(DRAW_CONTEXT1 *ctx)
 		double m=InputTheme.Middle;
 		if(!InputTheme.bg[1])
 		{
-			ui_draw_line(ctx,4,m-1,w-5,m-1,InputTheme.sep,InputTheme.line_width*scale);
+			// ui_draw_line(ctx,4,m-1,w-5,m-1,InputTheme.sep,InputTheme.line_width*scale);
+			int margin=(int)round(4*ui_scale);
+			ui_draw_line(ctx,margin,m-1,w-1-margin,m-1,InputTheme.sep,InputTheme.line_width*scale);
 		}
 		else
 		{
@@ -729,7 +758,10 @@ static void ui_draw_input_win(DRAW_CONTEXT1 *ctx)
 		{
 			h=InputTheme.RealHeight-border-y;
 		}
-		ui_fill_rect(ctx,x,y,w,h,color);
+		if(InputTheme.radius[1])
+			ui_draw_round_rect(ctx,x,y,w,h,InputTheme.radius[1],color,color,0);
+		else
+			ui_fill_rect(ctx,x,y,w,h,color);
 	}
 
 	if(/*!im.EnglishMode && */eim && eim->CandPageCount>1 && InputTheme.page.show)
@@ -740,9 +772,9 @@ static void ui_draw_input_win(DRAW_CONTEXT1 *ctx)
 			pos_x=im.PagePosX;
 			pos_y=im.PagePosY;
 			UI_IMAGE up=eim->CurCandPage>0?InputTheme.page.up[0]:InputTheme.page.up[1];
-			ui_draw_image(ctx,up,pos_x,pos_y);
+			ui_stretch_image(ctx,up,pos_x,pos_y,InputTheme.page.size,InputTheme.page.size);
 			UI_IMAGE down=eim->CurCandPage<eim->CandPageCount-1?InputTheme.page.down[0]:InputTheme.page.down[1];
-			ui_draw_image(ctx,down,pos_x+im.PageLen[0]+im.PageLen[1],pos_y);
+			ui_stretch_image(ctx,down,pos_x+im.PageLen[0]+im.PageLen[1],pos_y,InputTheme.page.size,InputTheme.page.size);
 		}
 	}
 

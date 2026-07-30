@@ -9,10 +9,15 @@
 #include <windowsx.h>
 #include <tchar.h>
 #else
+
+#ifndef USE_WUI
 #include <gtk/gtk.h>
 void ybus_wayland_win_move(GtkWidget *w,int x,int y);
 void ybus_wayland_win_move_relative(GtkWidget *w,int dx,int dy);
 void ui_get_workarea(int *x, int *y, int *width, int *height);
+#else
+#include "wui.h"
+#endif
 #endif
 #include <assert.h>
 
@@ -47,6 +52,7 @@ typedef struct{
 
 typedef struct{
 	const char *name;
+	const char *font_name;
 	UI_FONT font;
 	double scale;
 	BTN_DESC desc[3];
@@ -173,6 +179,14 @@ static void line_free(KBD_BTN *b)
 #define l_xml_get_prop_color(node,name)			\
  	ui_color_parse(l_xml_get_prop(node,name))
 
+static void kbd_free_font_latter(void *unused)
+{
+	if(!kst.layout.font)
+		return;
+	ui_font_free(kst.layout.font);
+	kst.layout.font=NULL;
+}
+
 static int kbd_select(int8_t pos,int8_t sub)
 {
 	double scale;
@@ -187,8 +201,9 @@ static int kbd_select(int8_t pos,int8_t sub)
 	kst.layout.main.data=NULL;
 	l_ptr_array_free(kst.layout.line,(LFreeFunc)line_free);
 	kst.layout.line=NULL;
-	ui_font_free(kst.layout.font);
-	kst.layout.font=NULL;
+	y_ui_timer_add(5000,kbd_free_font_latter,NULL);
+	//ui_font_free(kst.layout.font);
+	//kst.layout.font=NULL;
 	if(pos==-1)
 		return 0;
 	LXmlNode *root=kst.config->root.child;
@@ -218,7 +233,20 @@ static int kbd_select(int8_t pos,int8_t sub)
 	kst.layout.main.rc.w=(float)round(scale*w);
 	kst.layout.main.rc.h=(float)round(scale*h);
 	kst.layout.main.type=KBT_MAIN;
-	kst.layout.font=ui_font_parse(kst.layout.win,l_xml_get_prop(layout,"font"),scale);
+
+	y_ui_timer_del(kbd_free_font_latter,NULL);
+
+	const char *font_name=l_xml_get_prop(layout,"font");
+	if(kst.layout.font && strcmp(font_name,kst.layout.font_name))
+	{
+		ui_font_free(kst.layout.font);
+		kst.layout.font=NULL;
+	}
+	if(!kst.layout.font)
+	{
+		kst.layout.font=ui_font_parse(kst.layout.win,font_name,scale,y_ui_get_scale(1));
+		kst.layout.font_name=font_name;
+	}
 
 	LXmlNode *button=l_xml_get_child(layout,"key");
 	if(!button)
@@ -343,9 +371,8 @@ static int kbd_select(int8_t pos,int8_t sub)
 		SetWindowText(kst.layout.win,temp);
 		InvalidateRect(kst.layout.win,NULL,TRUE);
 		
-		int w,h;
-		w=GetSystemMetrics(SM_CXSCREEN);
-		h=GetSystemMetrics(SM_CYSCREEN);
+		int w=GetSystemMetrics(SM_CXSCREEN);
+		int h=GetSystemMetrics(SM_CYSCREEN);
 
 		DWORD dwExStyle=WS_EX_TOPMOST|WS_EX_NOACTIVATE|WS_EX_APPWINDOW;
 		DWORD dwStyle=WS_CAPTION|WS_OVERLAPPED|WS_SYSMENU;
@@ -373,7 +400,18 @@ static int kbd_select(int8_t pos,int8_t sub)
 		}
 		GetClientRect(kst.layout.win,&rc);
 	}
-#else
+#elif defined(USE_WUI)
+	wui->win_set_title(kst.layout.win,kst.layout.name);
+	wui->win_resize(kst.layout.win,
+			kst.layout.main.rc.w,
+			kst.layout.main.rc.h);
+	if(kst.first)
+	{
+		wui->win_center(kst.layout.win);
+		kst.first=0;
+	}
+	wui->win_redraw(kst.layout.win);
+#else	
 	gtk_window_set_title(GTK_WINDOW(kst.layout.win),kst.layout.name);
 	gtk_widget_queue_draw(kst.layout.win);
 	gtk_widget_set_size_request(GTK_WIDGET(kst.layout.canvas),
@@ -475,6 +513,32 @@ int y_kbd_show_with_main(int b)
 	return 0;
 }
 
+#elif defined(USE_WUI)
+int y_kbd_show_with_main(int b)
+{
+	if(kst.menu_show)
+		return -1;
+	if(b)
+	{
+		if(kst.show)
+		{
+			y_kbd_show(1);
+		}
+	}
+	else
+	{
+		if(kst.show)
+		{
+			if(!wui->wayland_get_surface(kst.layout.win))
+			{
+				return -1;
+			}
+			y_kbd_show(0);
+			kst.show=1;
+		}
+	}
+	return 0;
+}
 #else
 
 int y_kbd_show_with_main(int b)
@@ -510,6 +574,8 @@ static void kbd_paint(void)
 {
 #ifdef _WIN32
 	InvalidateRect(kst.layout.win,NULL,TRUE);
+#elif defined(USE_WUI)
+	wui->win_redraw(kst.layout.win);
 #else
 	gtk_widget_queue_draw(kst.layout.win);
 #endif
@@ -531,7 +597,7 @@ void y_kbd_select(int pos,int sub)
 	}
 }
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(USE_WUI)
 static gboolean keyboard_motion_cb(GtkWidget *window,GdkEventMotion *event,gpointer user_data)
 {
 	gint drag_x=GPOINTER_TO_INT(g_object_get_data(G_OBJECT(window),"drag-x"));
@@ -732,6 +798,43 @@ static void kbd_popup_menu(LPtrArray *arr,int cur,void (*cb)(int),int from)
 	if(id>0)
 		cb(id-IDC_KEYBOARD);
 	kst.menu_show=false;
+}
+#elif defined(USE_WUI)
+static void kbd_menu_activate_cb(GSimpleAction *action,GVariant *parameter,gpointer user_data)
+{
+	void (*cb)(int)=user_data;
+	const char *name=g_action_get_name(G_ACTION(action));
+	int id=0;
+	if(name && sscanf(name,"kbd%d",&id)==1)
+		cb(id);
+}
+
+static void kbd_popup_menu(LPtrArray *arr,int cur,void (*cb)(int),int from)
+{
+	(void)from;
+	if(!arr || !cb)
+		return;
+	GMenu *gmenu=g_menu_new();
+	GSimpleActionGroup *group=g_simple_action_group_new();
+	for(int i=0;i<l_ptr_array_length(arr);i++)
+	{
+		const char *name=l_ptr_array_nth(arr,i);
+		if(!name || !name[0])
+			break;
+		char action_name[32];
+		snprintf(action_name,sizeof(action_name),"app.kbd%d",i);
+		GMenuItem *item=g_menu_item_new(name,action_name);
+		g_menu_append_item(gmenu,item);
+		g_object_unref(item);
+		GSimpleAction *action=g_simple_action_new_stateful(
+			action_name+4,NULL,
+			g_variant_new_boolean(i==cur));
+		g_signal_connect(action,"activate",G_CALLBACK(kbd_menu_activate_cb),cb);
+		g_action_map_add_action(G_ACTION_MAP(group),G_ACTION(action));
+		g_object_unref(action);
+	}
+	w_win_t win=from?y_ui_main_win():kst.layout.win;
+	wui->win_popup_menu(win,gmenu,group,1);
 }
 #else
 static void (*_menu_click_cb)(int);
@@ -1120,6 +1223,54 @@ static void kbd_main_show(int b)
 		//ShowWindow(kst.layout.win,SW_RESTORE);
 		SetWindowPos(kst.layout.win,HWND_TOP,0,0,0,0,SWP_NOACTIVATE|SWP_NOMOVE|SWP_NOSIZE|SWP_SHOWWINDOW);
 	}
+}
+#elif defined(USE_WUI)
+static int kbd_draw_cb(w_win_t win,const W_EVENT *e,void *data)
+{
+	DRAW_CONTEXT1 ctx;
+	ui_draw_begin(&ctx,win,e->draw.cr);
+	OnKeyboardPaint(&ctx);
+	ui_draw_end(&ctx);
+	return 1;
+}
+
+static int kbd_mouse_down_cb(w_win_t win,const W_EVENT *e,void *data)
+{
+	if(e->mouse.button==W_BUTTON_LEFT)
+		kbd_click(e->mouse.x,e->mouse.y,0);
+	return 1;
+}
+
+static int kbd_mouse_up_cb(w_win_t win,const W_EVENT *e,void *data)
+{
+	if(e->mouse.button==W_BUTTON_LEFT)
+		kbd_click(e->mouse.x,e->mouse.y,1);
+	else if(e->mouse.button==W_BUTTON_RIGHT)
+		y_kbd_popup_menu_real(0);
+	return 1;
+}
+
+static int kbd_close_cb(w_win_t win,const W_EVENT *e,void *data)
+{
+	y_kbd_show(0);
+	return 1;
+}
+
+static void kbd_main_new(void)
+{
+	kst.layout.win=wui->win_create("","layer,decorated",NULL);
+	wui->win_connect(kst.layout.win,W_DRAW,kbd_draw_cb,NULL);
+	wui->win_connect(kst.layout.win,W_MOUSE_DOWN,kbd_mouse_down_cb,NULL);
+	wui->win_connect(kst.layout.win,W_MOUSE_UP,kbd_mouse_up_cb,NULL);
+	wui->win_connect(kst.layout.win,W_CLOSE,kbd_close_cb,NULL);
+}
+
+static void kbd_main_show(int b)
+{
+	if(b)
+		wui->win_show(kst.layout.win);
+	else
+		wui->win_hide(kst.layout.win);
 }
 #else
 

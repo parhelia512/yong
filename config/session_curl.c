@@ -98,18 +98,18 @@ char *http_session_get(HttpSession *ss,const char *path,int *len,const char *pos
 	if(post && post_len>0)
 	{
 		curl_easy_setopt(curl,CURLOPT_POSTFIELDS,post);
-		curl_easy_setopt(curl,CURLOPT_POSTFIELDSIZE,post_len);
+		curl_easy_setopt(curl,CURLOPT_POSTFIELDSIZE,(long)post_len);
 	}
-	curl_easy_setopt(curl,CURLOPT_TIMEOUT_MS,ss->timeout);
-	curl_easy_setopt(curl,CURLOPT_ACCEPTTIMEOUT_MS,1000);
-	curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT_MS,1000);
+	curl_easy_setopt(curl,CURLOPT_TIMEOUT_MS,(long)ss->timeout);
+	curl_easy_setopt(curl,CURLOPT_ACCEPTTIMEOUT_MS,1000L);
+	curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT_MS,1000L);
 	curl_easy_setopt(curl,CURLOPT_ACCEPT_ENCODING,"gzip");
 	l_string_init(&ss->str,16);
 	ss->content_length = -1; 
 	if(!strcmp(proto,"https"))
 	{
-		curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,0);
-		curl_easy_setopt(curl,CURLOPT_SSL_VERIFYHOST,0);
+		curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,0L);
+		curl_easy_setopt(curl,CURLOPT_SSL_VERIFYHOST,0L);
 	}
 	curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,(void*)write_callback);
 	curl_easy_setopt(curl,CURLOPT_WRITEDATA,ss);

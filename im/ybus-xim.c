@@ -5,13 +5,11 @@
 #include <X11/keysym.h>
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
+#include <X11/XKBlib.h>
 #include <IMdkit.h>
 #include <Xi18n.h>
 #include <XimFunc.h>
 #include <Xi18nX.h>
-
-#include <gtk/gtk.h>
-//#include <gdk/gdkx.h>
 
 #include <langinfo.h>
 
@@ -540,12 +538,6 @@ static void store_ic_values(YBUS_CLIENT *client,IMChangeICStruct *data)
 			{
 				break;
 			}
-#if !GTK_CHECK_VERSION(3,0,0)
-			if(gtk_major_version==2 && gtk_minor_version<15)
-			{
-				Y+=18; /* work around bug at low version of gtk */
-			}
-#endif
 			client->track=1;
 			client->x=X;
 			client->y=Y;
@@ -723,7 +715,7 @@ int GetKey(int KeyCode,int KeyState)
 		ret|=KEYM_SUPER;
 	if(KeyState & Mod2Mask)
 		ret|=KEYM_KEYPAD;
-	if(KeyState & LockMask)
+	if((KeyState & LockMask) && ret>='a' && ret<='Z')
 		ret|=KEYM_CAPS;
 
 	mask=ret&KEYM_MASK;
@@ -1099,6 +1091,14 @@ static int xim_init(void)
 	if(!dpy)
 		dpy=XOpenDisplay(NULL);
 	if(!dpy) return -1;
+
+	int opcode, event_base, error_base, major, minor;
+	if (!XkbQueryExtension(dpy, &opcode, &event_base, &error_base, &major, &minor))
+	{
+    	fprintf(stderr, "XKB extension init fail\n");
+    	return -1;
+	}
+
 	source=xim_poll_display_fd(dpy);
 	
 	screen=DefaultScreen(dpy);
@@ -1164,3 +1164,24 @@ int ybus_xim_init(void)
 	ybus_add_plugin(&plugin);
 	return 0;
 }
+
+Display *ybus_xim_get_display(void)
+{
+	return dpy;
+}
+
+int ybus_xim_get_capslock(void)
+{
+#if 0
+	 XkbStateRec state;
+	 XFlush(dpy);
+	 Status status = XkbGetState(dpy, XkbUseCoreKbd, &state);
+	 if (status != Success)
+		 return -1;
+	 return (state.mods & LockMask) ? 1:0;
+#else
+	 // at wayland, we always get 0, so just fail
+	 return -1;
+#endif
+}
+

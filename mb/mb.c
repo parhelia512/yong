@@ -5843,14 +5843,17 @@ int y_mb_assist_get2(struct y_mb *mb,char calc[][MAX_CAND_LEN+1],int max,char su
 	}
 	if(count<=1)
 		return count;
+	bool swapped1=false;
 	if(first_match==1)
 	{
 		char temp[MAX_CAND_LEN+1];
 		strcpy(temp,calc[0]);
 		memmove(calc,calc+1,(count-1)*(MAX_CAND_LEN+1));
 		strcpy(calc[count-1],temp);
+		if(count-1==1)
+			swapped1=true;
 	}
-	if(super[1] && second_match==first_match)
+	if(super[1] && second_match==first_match && !swapped1)
 	{
 		char temp[MAX_CAND_LEN+1];
 		strcpy(temp,calc[0]);

@@ -235,7 +235,7 @@ char *l_file_vget_contents(const char *file,size_t *length,va_list ap)
 		zfile=file_is_in_zip(temp);
 		if(!zfile) continue;
 		zfile[-1]=0;
-		fp=fopen(temp,"rb");
+		fp=l_fopen(temp,"rb");
 		if(fp!=NULL)
 		{
 			res=l_zip_file_get_contents(fp,zfile,length);

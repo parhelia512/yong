@@ -1,8 +1,11 @@
 #include <llib.h>
 #include <math.h>
 #include <assert.h>
-#include <cairo-xlib.h>
 #include "ui-draw.h"
+#include "lsdf.h"
+#if USE_WUI
+#include "wui.h"
+#endif
 
 static double get_scale(void *win,void *dc)
 {
@@ -16,10 +19,17 @@ void ui_draw_begin(DRAW_CONTEXT1 *ctx,void *win,void *dc)
 	ctx->win=win;
 	ctx->scale=get_scale(win,dc);
 	cairo_set_antialias(dc,CAIRO_ANTIALIAS_NONE);
+	ctx->tx=ctx->ty=0;
 }
 
 void ui_draw_end(DRAW_CONTEXT1 *ctx)
 {
+}
+
+void ui_draw_translate(DRAW_CONTEXT1 *ctx,int x,int y)
+{
+	ctx->tx=x;
+	ctx->ty=y;
 }
 
 static void ui_set_source_color(DRAW_CONTEXT1 *ctx,UI_COLOR c)
@@ -32,6 +42,7 @@ static void ui_set_source_color(DRAW_CONTEXT1 *ctx,UI_COLOR c)
 	cairo_set_source_rgba(ctx->dc,r,g,b,a);
 }
 
+#if 0
 void ui_draw_line(DRAW_CONTEXT1 *ctx,int x0_i,int y0_i,int x1_i,int y1_i,UI_COLOR color,double line_width)
 {
 	cairo_t *dc=ctx->dc;
@@ -67,13 +78,77 @@ void ui_draw_line(DRAW_CONTEXT1 *ctx,int x0_i,int y0_i,int x1_i,int y1_i,UI_COLO
 	}
 	cairo_stroke(dc);
 }
+#else
+void ui_draw_line(DRAW_CONTEXT1 *ctx,int x0_i,int y0_i,int x1_i,int y1_i,UI_COLOR color,double line_width)
+{
+	cairo_t *cr=ctx->dc;
+	double x0=ctx->scale*(x0_i+ctx->tx),y0=ctx->scale*(y0_i+ctx->ty),x1=ctx->scale*(x1_i+ctx->tx),y1=ctx->scale*(y1_i+ctx->ty);
+	line_width*=ctx->scale;
+
+	cairo_matrix_t ctm;
+    cairo_get_matrix(cr, &ctm);
+	double scale=ctm.xx;
+	line_width*=scale;
+	if(line_width>2) line_width=2;
+	
+	double tx = ctm.x0;
+    double ty = ctm.y0;
+
+	x0=round(x0*scale+tx);
+	x1=round(x1*scale+tx);
+	y0=round(y0*scale+ty);
+	y1=round(y1*scale+ty);
+
+	cairo_save(cr);
+    cairo_identity_matrix(cr);
+	cairo_set_line_width(cr,1);
+	ui_set_source_color(ctx,color);
+
+	if(y0==y1)
+	{
+		cairo_move_to(cr,x0,y0+0.5);
+		cairo_line_to(cr,x1,y0+0.5);
+	}
+	else
+	{
+		cairo_move_to(cr,x0+0.5,y0);
+		cairo_line_to(cr,x1+0.5,y1);
+	}
+	cairo_stroke(cr);
+
+	if(line_width>1.01)
+	{
+		color.a*=line_width-1;
+		ui_set_source_color(ctx,color);
+		if(y0==y1)
+		{
+			cairo_move_to(cr,x0,y0+1.5);
+			cairo_line_to(cr,x1,y0+1.5);
+		}
+		else
+		{
+			cairo_move_to(cr,x0+1.5,y0);
+			cairo_line_to(cr,x0+1.5,y1);
+		}
+	}
+
+	cairo_stroke(cr);
+	cairo_restore(cr);
+}
+#endif
 
 void ui_draw_rect(DRAW_CONTEXT1 *ctx,int x_i,int y_i,int w_i,int h_i,UI_COLOR color,double line_width)
 {
 	cairo_t *dc=ctx->dc;
-	double x=ctx->scale*x_i,y=ctx->scale*y_i,w=ctx->scale*w_i,h=ctx->scale*h_i;
+	double x=ctx->scale*(x_i+ctx->tx),y=ctx->scale*(y_i+ctx->ty),w=ctx->scale*w_i,h=ctx->scale*h_i;
 	line_width*=ctx->scale;
 	if(line_width>2) line_width=2;
+
+	cairo_matrix_t ctm;
+    cairo_get_matrix(dc, &ctm);
+	if(line_width*ctm.xx>2)
+		line_width=2/ctm.xx;
+
 	cairo_set_antialias(dc,CAIRO_ANTIALIAS_DEFAULT);
 	ui_set_source_color(ctx,color);
 	cairo_set_line_width(dc,line_width);
@@ -82,8 +157,9 @@ void ui_draw_rect(DRAW_CONTEXT1 *ctx,int x_i,int y_i,int w_i,int h_i,UI_COLOR co
 	cairo_set_antialias(dc,CAIRO_ANTIALIAS_NONE);
 }
 
-void ui_fill_rect(DRAW_CONTEXT1 *ctx,int x,int y,int w,int h,UI_COLOR color)
+void ui_fill_rect(DRAW_CONTEXT1 *ctx,int x_i,int y_i,int w_i,int h_i,UI_COLOR color)
 {
+	double x=ctx->scale*(x_i+ctx->tx),y=ctx->scale*(y_i+ctx->ty),w=ctx->scale*w_i,h=ctx->scale*h_i;
 	ui_set_source_color(ctx,color);
 	cairo_rectangle(ctx->dc,x,y,w,h);
 	cairo_fill(ctx->dc);
@@ -92,7 +168,7 @@ void ui_fill_rect(DRAW_CONTEXT1 *ctx,int x,int y,int w,int h,UI_COLOR color)
 void ui_draw_round_rect(DRAW_CONTEXT1 *ctx,int x_i,int y_i,int w_i,int h_i,int r_i,UI_COLOR stroke,UI_COLOR fill,double line_width)
 {
 	cairo_t *dc=ctx->dc;
-	double x=ctx->scale*x_i,y=ctx->scale*y_i,w=ctx->scale*w_i,h=ctx->scale*h_i,r=ctx->scale*r_i;
+	double x=ctx->scale*(x_i+ctx->tx),y=ctx->scale*(y_i+ctx->ty),w=ctx->scale*w_i,h=ctx->scale*h_i,r=ctx->scale*r_i;
 	line_width*=ctx->scale;
 
 	if(line_width>2) line_width=2;
@@ -137,7 +213,7 @@ int ui_draw_text_end(DRAW_CONTEXT1 *ctx)
 void ui_draw_text(DRAW_CONTEXT1 *ctx,UI_FONT font,int x_i,int y_i,const void *text,UI_COLOR color)
 {
 	cairo_t *dc=ctx->dc;
-	double x=ctx->scale*x_i,y=ctx->scale*y_i;
+	double x=ctx->scale*(x_i+ctx->tx),y=ctx->scale*(y_i+ctx->ty);
 	ui_set_source_color(ctx,color);
 	pango_layout_set_text (font->pango, text, -1);
 	cairo_move_to(dc,x,y-font->extraSpaceAbove);
@@ -147,7 +223,7 @@ void ui_draw_text(DRAW_CONTEXT1 *ctx,UI_FONT font,int x_i,int y_i,const void *te
 void ui_draw_image(DRAW_CONTEXT1 *ctx,UI_IMAGE image,int x_i,int y_i)
 {
 	cairo_t *dc=ctx->dc;
-	double x=ctx->scale*x_i,y=ctx->scale*y_i;
+	double x=ctx->scale*(x_i+ctx->tx),y=ctx->scale*(y_i+ctx->ty);
 	int w,h;
 	if(!image)
 		return;
@@ -161,50 +237,100 @@ void ui_draw_image(DRAW_CONTEXT1 *ctx,UI_IMAGE image,int x_i,int y_i)
 
 void ui_stretch_image(DRAW_CONTEXT1 *ctx,UI_IMAGE image,int x_i,int y_i,int w_i,int h_i)
 {
-	double x=ctx->scale*x_i,y=ctx->scale*y_i,w=ctx->scale*w_i,h=ctx->scale*h_i;
+	cairo_t *cr=ctx->dc;
+	double x=ctx->scale*(x_i+ctx->tx),y=ctx->scale*(y_i+ctx->ty),w=ctx->scale*w_i,h=ctx->scale*h_i;
+	
+	int w0, h0;
+    ui_image_size(image, &w0, &h0);
+
+    cairo_matrix_t ctm;
+    cairo_get_matrix(cr, &ctm);
+    double sx = ctm.xx;
+    double sy = ctm.yy;
+    double tx = ctm.x0;
+    double ty = ctm.y0;
+
+    double dx = x * sx + tx;
+    double dy = y * sy + ty;
+    double dw = w * sx;
+    double dh = h * sy;
+
+    int aligned_dx = (int)(dx + 0.5);
+    int aligned_dy = (int)(dy + 0.5);
+    int aligned_dw = (int)(dw + 0.5);
+    int aligned_dh = (int)(dh + 0.5);
+
+    cairo_save(cr);
+    cairo_identity_matrix(cr); 
+
+    double scale_x = (double)aligned_dw / w0;
+    double scale_y = (double)aligned_dh / h0;
+
+    const double EPSILON = 0.0001;
+	
+    if (fabs(scale_x - 1.0) < EPSILON && fabs(scale_y - 1.0) < EPSILON)
+	{
+        aligned_dw = w0;
+        aligned_dh = h0;
+        cairo_rectangle(cr, aligned_dx, aligned_dy, aligned_dw, aligned_dh);
+        cairo_clip(cr);
+        cairo_translate(cr, aligned_dx, aligned_dy);
+        cairo_set_source_surface(cr, image, 0, 0);
+        cairo_paint(cr);
+    }
+	else 
+	{
+        cairo_rectangle(cr, aligned_dx, aligned_dy, aligned_dw, aligned_dh);
+        cairo_clip(cr);
+        cairo_translate(cr, aligned_dx, aligned_dy);
+        cairo_scale(cr, scale_x, scale_y);
+        cairo_set_source_surface(cr, image, 0, 0);
+        cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BILINEAR); 
+        cairo_paint(cr);
+    }
+
+    cairo_restore(cr);
+}
+
+#if 0
+void ui_stretch_image(DRAW_CONTEXT1 *ctx,UI_IMAGE image,int x_i,int y_i,int w_i,int h_i)
+{
+	double x=round(ctx->scale*x_i),y=round(ctx->scale*y_i),w=round(ctx->scale*w_i),h=round(ctx->scale*h_i);
 	cairo_t *dc=ctx->dc;
 	int w0,h0;
 	double sx=1,sy=1;
-	double ox=0,oy=0;
 	
 	if(!image)
 		return;
 
 	ui_image_size(image,&w0,&h0);
+
 	if(w!=w0)
 	{
-		sx=(double)(w)/(double)(w0-1);
-		ox=-0.5;
+		sx=(double)w/(double)w0;
 	}
 	if(h!=h0)
 	{
-		sy=(double)h/(double)(h0-1);
-		oy=-0.5;
+		sy=(double)h/(double)h0;
 	}
-#if 1
 	cairo_save(dc);
-	
 	cairo_translate(dc,x,y);
 	cairo_rectangle(dc,0,0,w,h);
 	cairo_clip(dc);
 	cairo_scale(dc,sx,sy);
-	cairo_set_source_surface(dc,image,ox,oy);
+	cairo_set_source_surface(dc,image,0,0);
 	cairo_paint(dc);
-	
-	cairo_restore(dc);
-#else
-	ui_image_draw_full(dc,image,x,y,w,h,0,0,w0,h0);
-#endif
-}
 
-UI_FONT ui_font_parse(void * w,const char *s,double scale)
+	cairo_restore(dc);
+}
+#endif
+
+UI_FONT ui_font_parse(void * w,const char *s,double scale,double surface_scale)
 {
 	PangoFontDescription *desc;
-	GdkWindow *window;
 	PangoLayout *res;
 	cairo_t *cr;
 
-	window=gtk_widget_get_window(w);
 	desc=pango_font_description_from_string(s);
 	assert(desc!=NULL);
 	// NOTE: GDK_DPI_SCALE not affect this, so scale the size by ourself
@@ -212,9 +338,12 @@ UI_FONT ui_font_parse(void * w,const char *s,double scale)
 	//pango_font_description_set_absolute_size(desc,size/1024*ui_scale*96/72*PANGO_SCALE);
 	pango_font_description_set_size(desc,(int)size*scale);
 
-	cr=gdk_cairo_create(window);
+	cairo_surface_t *surface=cairo_image_surface_create(CAIRO_FORMAT_ARGB32,1,1);
+	cr=cairo_create(surface);
+	cairo_scale(cr,surface_scale,surface_scale);
 	res=pango_cairo_create_layout(cr);
 	cairo_destroy(cr);
+	cairo_surface_destroy(surface);
 	assert(res!=NULL);
 	pango_layout_set_font_description(res,desc);
 
@@ -356,7 +485,7 @@ UI_IMAGE ui_image_load_at_size(const char *file,int width,int height,int where)
 	int n_channels=gdk_pixbuf_get_n_channels(pixbuf);
 	if(n_channels!=3 && n_channels!=4)
 	{
-		fprintf(stderr,"pixbuf channels %d is not supported\n",n_channels);
+		// fprintf(stderr,"pixbuf channels %d is not supported\n",n_channels);
 		g_object_unref(pixbuf);
 		return NULL;
 	}
@@ -410,6 +539,8 @@ UI_IMAGE ui_image_load_at_size(const char *file,int width,int height,int where)
 	}
 	cairo_surface_mark_dirty(r); 
 	g_object_unref(pixbuf);
+	// if(!strcmp(file,"jian1.svg"))
+		// cairo_surface_write_to_png(r,"/tmp/jian1.png");
 	return r;
 }
 
@@ -503,7 +634,7 @@ UI_REGION ui_image_region(UI_IMAGE p,double scale)
 	UI_REGION rgn=cairo_region_create();
 	for(int j=0;j<h;j++)
 	{
-		GdkRectangle rc={.x=0,.y=j,.width=0,.height=1};
+		cairo_rectangle_int_t rc={.x=0,.y=j,.width=0,.height=1};
 		for(int i=0;i<w;i++)
 		{
 			uint8_t a=get_pixel_alpha(p,(int)round(i/scale),(int)round(j/scale));
@@ -532,5 +663,46 @@ UI_REGION ui_image_region(UI_IMAGE p,double scale)
 		}
 	}
 	return rgn;
+}
+
+void ui_draw_shadow(DRAW_CONTEXT1 *ctx,int radius,int size,UI_COLOR color)
+{
+	cairo_t *cr=ctx->dc;
+	cairo_surface_t *target=cairo_get_target(cr);
+	cairo_surface_flush(target);
+
+#if USE_WUI
+	double scale;
+	if(wui->wayland_get_surface(ctx->win))
+	{
+		cairo_matrix_t ctm;
+   		cairo_get_matrix(cr, &ctm);
+		scale=ctm.xx;
+	}
+	else
+	{
+		double sy;
+		cairo_surface_get_device_scale(target,&scale,&sy);
+		(void)sy;
+	}
+	radius=(int)(scale*radius+0.5);
+	size=(int)(scale*size+0.5);
+#endif
+	cairo_save(cr);
+    cairo_identity_matrix(cr);
+
+	L_SDF_CONTEXT sdf;
+	l_sdf_context_init(&sdf,
+			cairo_image_surface_get_data(target),
+			cairo_image_surface_get_width(target),
+			cairo_image_surface_get_height(target));
+	l_sdf_set_fg(&sdf,color.color);
+	int w=sdf.width-2*size;
+	int h=sdf.height-2*size;
+	l_sdf_moveto(&sdf,size,size);
+	l_sdf_rect_shadow(&sdf,w,h,size,radius);
+
+	cairo_restore(cr);
+	cairo_surface_mark_dirty(target);
 }
 

@@ -1053,20 +1053,14 @@ function warn_user_root()
 
 function wayland_select()
 {
-	if ! [ -f /usr/bin/ibus-daemon ] ; then
-		mkdir -p ~/.config/autostart/
-		cat >~/.config/autostart/yong.desktop <<EOF
-[Desktop Entry]
-Exec=/usr/bin/yong -d
-Type=Application
-Name=yong
-EOF
-	fi
-
 	if [ -f /usr/bin/gnome-extensions -a -f gnome-shell/yong@dgod.net.shell-extension.zip ] ; then
 		gnome-extensions install --force gnome-shell/yong@dgod.net.shell-extension.zip
 		gnome-extensions enable yong@dgod.net
 	fi
+
+	echo "GNOME select at system \"Settings - Keyboard - Input Sources\""
+	echo "KDE select at system \"Settings - Keyboard - Virtual keyboard\""
+	echo "wlroots set auto start at config"
 }
 
 if [ $# != 1 ] ; then

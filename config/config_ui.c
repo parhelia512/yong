@@ -580,6 +580,32 @@ static void cu_default_im(void *resv,void *param)
 	cu_reload();
 }
 
+static LXmlNode *guess_custom_page(LKeyFile *config,const char *group)
+{
+	char temp[128];
+	LXmlNode *res=NULL;
+	const char *engine=l_key_file_get_data(config,group,"config");
+	if(engine)
+	{
+		snprintf(temp,sizeof(temp),"page-%s",engine);
+		res=CustomHasPage(temp);
+		if(res)
+			return res;
+	}
+	snprintf(temp,sizeof(temp),"page-%s",group);
+	res=CustomHasPage(temp);
+	if(res)
+		return res;
+	engine=l_key_file_get_data(config,group,"engine");
+	if(!engine)
+		return NULL;
+	if(!strcmp(engine,"libmb.so") && strcmp(group,"english"))
+		snprintf(temp,sizeof(temp),"page-mb");
+	else if(!strcmp(engine,"libcloud.so"))
+		snprintf(temp,sizeof(temp),"page-cloud");
+	return CustomHasPage(temp);
+}
+
 static int LoadIMList(CUCtrl p,int arc,char **arg)
 {
 	CUCtrl root;
@@ -611,19 +637,7 @@ static int LoadIMList(CUCtrl p,int arc,char **arg)
 			item->text=l_strdup(name);
 		}
 		item->parent=p;
-		snprintf(temp,sizeof(temp),"page-%s",group);
-		if(!CustomHasPage(temp))
-		{
-			const char *engine=l_key_file_get_data(config,group,"engine");
-			if(engine)
-			{
-				if(!strcmp(engine,"libmb.so") && strcmp(group,"english"))
-					snprintf(temp,sizeof(temp),"page-mb");
-				else if(!strcmp(engine,"libcloud.so"))
-					snprintf(temp,sizeof(temp),"page-cloud");
-			}
-		}
-		page=cu_ctrl_new(root,CustomHasPage(temp));
+		page=cu_ctrl_new(root,guess_custom_page(config,group));
 		if(page)
 		{
 			l_free(page->group);
@@ -671,12 +685,19 @@ void cu_show_page(const char *name)
 		{
 			if(!p->realized)
 			{
-				LXmlNode *child;
-				for(child=p->node->child;child!=NULL;child=child->next)
+				CUCtrl t=NULL;
+				for(LXmlNode *child=p->node->child;child!=NULL;child=child->next)
 				{
-					CUCtrl c;
-					c=cu_ctrl_new(p,child);
+					CUCtrl c=cu_ctrl_new(p,child);
 					if(!c) continue;
+					// c->next=p->child;
+					// p->child=c;
+					c->next=t;
+					t=c;
+				}
+				for(CUCtrl c=t;c!=NULL;c=t)
+				{
+					t=c->next;
 					c->next=p->child;
 					p->child=c;
 				}
@@ -900,6 +921,13 @@ USER:
 			skin_file=l_key_file_open(real,0,NULL);
 			if(!skin_file)
 			{
+#ifdef _WIN32
+				char temp[256];
+				l_utf8_to_gb(real,temp,sizeof(temp));
+				fprintf(stderr,"open %s fail\n",temp);
+#else
+				fprintf(stderr,"open %s fail\n",real);
+#endif
 				continue;
 			}
 			name=l_key_file_get_string(skin_file,"about","name");
@@ -933,9 +961,56 @@ USER:
 	return 0;
 }
 
+static void update_style_list(CUCtrl p,const char *line_name,const char *style_val)
+{
+	LPtrArray rlist=L_PTR_ARRAY_INIT;
+	l_strfreev(p->view);
+	l_strfreev(p->data);
+	if(!line_name || line_name[0]==0)
+	{
+		LPtrArray list=L_PTR_ARRAY_INIT;
+		l_ptr_array_append(&list,cu_translate("默认"));
+		l_ptr_array_append(&list,cu_translate("单行"));
+		l_ptr_array_append(&list,cu_translate("两行"));
+		l_ptr_array_append(&list,cu_translate("多行"));
+		l_ptr_array_append(&list,NULL);
+
+		l_ptr_array_append(&rlist,l_strdup(""));
+		l_ptr_array_append(&rlist,l_strdup("1"));
+		l_ptr_array_append(&rlist,l_strdup("0"));
+		l_ptr_array_append(&rlist,l_strdup("2"));
+		l_ptr_array_append(&rlist,NULL);
+
+		p->view=(char**)list.ptr;
+		p->data=(char**)rlist.ptr;
+	}
+	else
+	{
+		char **list=l_strsplit(line_name,',');
+		l_ptr_array_append(&rlist,l_strdup(""));
+		for(int i=1;list[i]!=NULL;i++)
+		{
+			l_ptr_array_append(&rlist,l_sprintf("%d",i-1));
+		}
+		l_ptr_array_append(&rlist,NULL);
+		p->view=(char**)list;
+		p->data=(char**)rlist.ptr;
+	}
+	cu_ctrl_init_self(p);
+	if(style_val)
+	{
+		int i;
+		for(i=0;p->data[i]!=NULL;i++)
+		{
+			if(!strcmp(p->data[i],style_val))
+				break;
+		}
+		cu_ctrl_set_self(p,p->data[i]);
+	}
+}
+
 static int PreviewSkin(CUCtrl p,int arc,char **arg)
 {
-	//CUCtrl root=cu_ctrl_get_root(p);
 	CUCtrl root=p->parent;
 	CUCtrl name,style,status,input;
 	char *name_val,*style_val;
@@ -968,8 +1043,25 @@ static int PreviewSkin(CUCtrl p,int arc,char **arg)
 		return 0;
 	}
 	style_val=cu_ctrl_get_self(style);
-	
-	//printf("name %s style %s\n",name_val,style_val);
+
+	if(p->cpos==0)
+	{	
+		temp=l_sprintf("%s/skin.ini",name_val);
+		kf=y_im_load_config(temp);
+		if(!kf)
+		{
+			l_free(name_val);
+			return -1;
+		}
+		const char *line_name=l_key_file_get_data(kf,"about","line");
+		update_style_list(style,line_name,style_val);
+		if(style_val && style_val[0]==0)
+		{
+			l_free(style_val);
+			goto reuse;
+		}
+		l_key_file_free(kf);
+	}
 	
 	temp=l_sprintf("%s/skin%s.ini",name_val,style_val);
 	l_free(style_val);
@@ -980,6 +1072,7 @@ static int PreviewSkin(CUCtrl p,int arc,char **arg)
 		l_free(name_val);
 		return -1;
 	}
+reuse:
 	temp=l_key_file_get_string(kf,"about","preview");
 	l_key_file_free(kf);
 	if(!temp)
@@ -1370,6 +1463,8 @@ static int LaunchUpdate(CUCtrl p,int arc,char **arg)
 #include <shlobj.h>
 #include <stdio.h>
 
+#if 0
+
 static BOOL CreateFileShortcut(LPCTSTR lpszFileName, LPCTSTR lpszLnkFileDir, LPCTSTR lpszLnkFileName, LPCTSTR lpszWorkDir, WORD wHotkey, LPCTSTR lpszDescription)
 {
 	if (lpszLnkFileDir == NULL)  
@@ -1422,6 +1517,8 @@ static BOOL CreateFileShortcut(LPCTSTR lpszFileName, LPCTSTR lpszLnkFileDir, LPC
     return SUCCEEDED(hr);
 }
 
+#endif
+
 BOOL GetStartupPath(LPTSTR pszPath)
 {
     LPITEMIDLIST  ppidl = NULL;
@@ -1446,12 +1543,121 @@ static int LinkExist(LPCTSTR path)
 	return attr!=INVALID_FILE_ATTRIBUTES;
 }
 
+static bool RegRunExist(void)
+{
+	HKEY hKey;
+	LONG result=RegOpenKeyEx(
+			HKEY_LOCAL_MACHINE,
+			_T("Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+		   	0, KEY_READ, &hKey);
+	if (result != ERROR_SUCCESS)
+		return false;
+	DWORD type = 0;
+	DWORD size = 0;
+	result = RegQueryValueEx(hKey, _T("Yong"), NULL, &type, NULL, &size);
+	RegCloseKey(hKey);
+	return (result == ERROR_SUCCESS);
+}
+
+int RegRunDel(void)
+{
+    HKEY hKey;
+    LONG result = RegOpenKeyEx(
+        HKEY_LOCAL_MACHINE,
+        _T("Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+        0,
+        KEY_SET_VALUE,
+        &hKey
+    );
+    if (result != ERROR_SUCCESS)
+        return -1;
+
+    result = RegDeleteValue(hKey, _T("Yong"));
+    RegCloseKey(hKey);
+
+    return (result == ERROR_SUCCESS) ? 0 : -1;
+}
+
+int RegRunAdd(LPCTSTR val)
+{
+    if (val == NULL)
+	{
+		fprintf(stderr,"RegRunAdd invalid param\n");
+        return -1;
+	}
+
+	if(_tcschr(val,' '))
+	{
+		size_t len=_tcslen(val);
+		LPTSTR quoted=l_alloc(len+3);
+		quoted[0] = _T('"');
+        _tcscpy(quoted + 1, val);
+        quoted[len + 1] = _T('"');
+        quoted[len + 2] = _T('\0');
+		val=quoted;
+	}
+
+    HKEY hKey;
+    LONG result = RegOpenKeyEx(
+        HKEY_LOCAL_MACHINE,
+        _T("Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+        0,
+        KEY_SET_VALUE,
+        &hKey
+    );
+    if (result != ERROR_SUCCESS)
+	{
+		fprintf(stderr,"RegOpenKeyEx error %ld\n",result);
+        return -1;
+	}
+
+    DWORD size = (DWORD)(_tcslen(val) + 1) * sizeof(TCHAR);
+    result = RegSetValueEx(
+        hKey,
+        _T("Yong"),
+        0,
+        REG_SZ,
+        (const BYTE*)val,
+        size
+    );
+    RegCloseKey(hKey);
+	if(result!=ERROR_SUCCESS)
+	{
+		fprintf(stderr,"RegSetValueEx error %ld\n",result);
+		return -1;
+	}
+
+    return 0;
+}
+
+static int RunSelfAs(LPCTSTR param)
+{
+	TCHAR szPath[MAX_PATH];
+	if (GetModuleFileName(NULL, szPath, MAX_PATH) == 0)
+		return -1;
+	HINSTANCE hInst = ShellExecute(NULL, _T("runas"), szPath, param, NULL, SW_SHOWNORMAL);
+	return ((int)(INT_PTR)hInst > 32) ? 0 : -1;
+}
+
+static int RegRunAddAs(LPCTSTR val)
+{
+	if (val == NULL || *val == '\0')
+		return -1;
+	TCHAR param[1024];
+	_stprintf_s(param, 1024, _T("--autostart-add \"%s\""), val);
+	return RunSelfAs(param);
+}
+
+static int RegRunDelAs(void)
+{
+	return RunSelfAs(_T("--autostart-del"));
+}
 
 static int CheckAutoStart(CUCtrl p,int arc,char **arg)
 {
 	TCHAR path[MAX_PATH];
 	GetStartupPath(path);
-	if(!LinkExist(path))
+	if(!LinkExist(path) && !RegRunExist())
 	{
 		cu_ctrl_set_self(p,"0");
 	}
@@ -1518,7 +1724,7 @@ static int SaveAutoStart(CUCtrl p,int arc,char **arg)
 {
 	TCHAR path[MAX_PATH];
 	GetStartupPath(path);
-	int exist=LinkExist(path);
+	bool exist=LinkExist(path) || RegRunExist();
 	char *s=cu_ctrl_get_self(p);
 	if(s[0]=='1' && !exist)
 	{
@@ -1532,12 +1738,20 @@ static int SaveAutoStart(CUCtrl p,int arc,char **arg)
 		if(!tmp)
 			return -1;
 		GetYongExeFile(tmp+1);
-		CreateFileShortcut(file,path,_T("yong.lnk"),NULL,0,NULL);
+		// CreateFileShortcut(file,path,_T("yong.lnk"),NULL,0,NULL);
+		if(0!=RegRunAddAs(file))
+		{
+			cu_ctrl_set_self(p,"0");
+		}
 	}
 	else if(s[0]!='1' && exist)
 	{
 		_tcscat(path,_T("\\yong.lnk"));
 		DeleteFile(path);
+		if(0!=RegRunDelAs())
+		{
+			cu_ctrl_set_self(p,"1");
+		}
 	}
 	l_free(s);
 	return 0;
@@ -1735,7 +1949,7 @@ void status(const char *fmt,...)
 	list=cu_ctrl_list_from_type(CU_LABEL);
 	for(p=list;p!=NULL;p=p->tlist)
 	{
-		if(strcmp("status",p->group))
+		if(!p->group || strcmp("status",p->group))
 		{
 			continue;
 		}

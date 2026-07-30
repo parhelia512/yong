@@ -323,3 +323,10 @@ void sentence_destroy(void)
 	l_free(sentence);
 	sentence=NULL;
 }
+
+const char *sentence_get_file(void)
+{
+	if(!sentence)
+		return NULL;
+	return sentence->file;
+}

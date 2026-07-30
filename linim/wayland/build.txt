@@ -1,0 +1,57 @@
+function replaceFile(filename,arr){
+	var text=fs.readFileSync(filename,{encoding:'utf8'});
+	for(var i=0;i<arr.length;i++){
+		var item=arr[i];
+		text=text.replaceAll(item[0],item[1]);
+	}
+	fs.writeFileSync(filename,text);
+}
+
+function gen(){
+	// input method v2
+	var cmd='wayland-scanner private-code < protocols/input-method-unstable-v2.xml > input-method-protocol-v2.c';
+	exec(cmd);
+	cmd='wayland-scanner client-header < protocols/input-method-unstable-v2.xml > input-method-client-protocol-v2.h';
+	exec(cmd);
+
+	cmd='wayland-scanner private-code < protocols/virtual-keyboard-unstable-v1.xml > virtual-keyboard-v1.c';
+	exec(cmd);
+	cmd='wayland-scanner client-header < protocols/virtual-keyboard-unstable-v1.xml > virtual-keyboard-v1.h';
+	exec(cmd);
+
+	replaceFile('input-method-client-protocol-v2.h',[
+		['wl_proxy_','p_wl_proxy_'],
+	]);
+	replaceFile('virtual-keyboard-v1.h',[
+		['wl_proxy_','p_wl_proxy_'],
+	]);
+	replaceFile('input-method-protocol-v2.c',[
+		['&wl_surface_interface','NULL,//p_wl_surface_interface'],
+		['&wl_seat_interface','NULL,//p_wl_seat_interface']
+	]);
+	replaceFile('virtual-keyboard-v1.c',[
+		['&wl_seat_interface,','NULL,//p_wl_seat_interface']
+	]);
+
+	// input method v1
+	var cmd='wayland-scanner private-code < protocols/input-method-unstable-v1.xml > input-method-protocol-v1.c';
+	exec(cmd);
+	cmd='wayland-scanner client-header < protocols/input-method-unstable-v1.xml > input-method-client-protocol-v1.h';
+	exec(cmd);
+
+	replaceFile('input-method-client-protocol-v1.h',[
+		['wl_proxy_','p_wl_proxy_'],
+		['&wl_keyboard_interface','p_wl_keyboard_interface']
+	]);
+	replaceFile('input-method-protocol-v1.c',[
+		['&wl_keyboard_interface','NULL,//p_wl_keyboard_interface'],
+		['&wl_surface_interface','NULL,//p_wl_surface_interface'],
+		['&wl_output_interface','NULL,//p_wl_output_interface'],
+	]);
+}
+
+if(target=='proto'){
+	gen();
+}else if(target=="clean"){
+	exec('rm -f input-method-protocol-v1.c input-method-client-protocol-v1.h input-method-protocol-v2.c input-method-client-protocol-v2.h virtual-keyboard-v1.c virtual-keyboard-v1.h');
+}

@@ -966,8 +966,13 @@ static LEARN_ITEM *predict_search(LEARN_DATA *data,MMSEG *mm,int cpos,int cnum,i
 				if(intersect)
 					continue;
 			}
-			if(p->allow && !(p->allow&pos))
-				continue;
+			if(p->allow)
+			{
+				if(!(p->allow&pos))
+					continue;
+				if(!(p->allow&PSEARCH_BEGIN) && (pos&PSEARCH_BEGIN))
+					continue;
+			}
 			if(mm->mb->split=='\'')
 			{
 				char zrm2[256];
@@ -2118,7 +2123,7 @@ static int predict_quanpin_simple(struct y_mb *mb,py_item_t *item,int count,char
 	depth=py2_build_sp_string(temp,item,count);
 	if(!(c=strchr(temp,'\'')) || !c[1])
 		return 0;
-	
+
 	array=l_array_new(26,sizeof(struct _p_item));
 retry:
 	n=trie_iter_path_first(&iter,trie,NULL,64);
@@ -2226,7 +2231,13 @@ static int y_mb_find_sentence(MMSEG *mm,const char *code)
 
 	cp_len=strlen(code);
 
-	predict_search(l_predict_data,mm,0,mm->count,PSEARCH_ALL,&item_arr,1);
+	int pos=0;
+	if(mm->sentence_begin)
+		pos|=PSEARCH_BEGIN;
+	if(mm->sentence_end)
+		pos|=PSEARCH_END;
+	if(!pos) pos=PSEARCH_MID;
+	predict_search(l_predict_data,mm,0,mm->count,PSEARCH_ALL,&item_arr,pos);
 	for(i=0;i<l_ptr_array_length(&item_arr);i++)
 	{
 		RES_ITEM *cur=&lst[lcnt];

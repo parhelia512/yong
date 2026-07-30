@@ -1,7 +1,12 @@
 #include <glib.h>
 #include <gio/gio.h>
-#include <gtk/gtk.h>
 #include <stdbool.h>
+#include <glib.h>
+#include <gio/gio.h>
+#ifndef USE_WUI
+#include <gtk/gtk.h>
+#endif
+#include "llib.h"
 
 static int is_dark=-1;
 static void (*change_cb)(void);
@@ -85,14 +90,26 @@ static int gnome_get_dark(bool *dark)
 
 static int fallback_get_dark(bool *dark)
 {
+#if USE_WUI
+	GObject *(*p_gtk_settings_get_default)(void);
+	p_gtk_settings_get_default=l_defsym("gtk_settings_get_default");
+	if(!p_gtk_settings_get_default)
+		return -1;
+	GObject *settings = p_gtk_settings_get_default();
+	g_object_get(G_OBJECT(settings), "gtk-application-prefer-dark-theme", dark, NULL);
+	return 0;
+#else
+
 #if GTK_MAJOR_VERSION == 3
 	GtkSettings *settings = gtk_settings_get_default();
 	if(!settings)
 		return -1;
 	g_object_get(G_OBJECT(settings), "gtk-application-prefer-dark-theme", dark, NULL);
 	return 0;
-#endif
+#else
 	return -1;
+#endif
+#endif
 }
 
 static void on_portal_setting_changed(GDBusConnection *connection,

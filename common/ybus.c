@@ -100,7 +100,7 @@ static void xim_ybus_update_config(void)
 YBUS_CONNECT *ybus_find_connect(YBUS_PLUGIN *plugin,CONN_ID conn_id)
 {
 	YBUS_CONNECT *p;
-	if(conn_active)
+	if(conn_active && conn_active->plugin==plugin)
 	{
 		if(plugin->match_connect)
 		{
@@ -424,6 +424,7 @@ int ybus_on_focus_in(YBUS_PLUGIN *plugin,CONN_ID conn_id,CLIENT_ID client_id)
 	{
 		return 0;
 	}
+	y_ui_cfg_ctrl("focus",plugin->name);
 	conn->active=client;
 	if(!client->state && conn->state && plugin->open_im)
 	{
@@ -469,6 +470,10 @@ int ybus_on_focus_out(YBUS_PLUGIN *plugin,CONN_ID conn_id,CLIENT_ID client_id)
 
 int ybus_on_key(YBUS_PLUGIN *plugin,CONN_ID conn_id,CLIENT_ID client_id,int key)
 {
+	if(!conn_active || conn_active->plugin!=plugin)
+	{
+		return 0;
+	}
 	if(YK_CODE(key)==0xff)
 	{
 		key=(KEYM_MASK&key)|0x7f;

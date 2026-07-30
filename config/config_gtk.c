@@ -235,6 +235,10 @@ int cu_ctrl_init_list(CUCtrl p)
 		}
 		cu_ctrl_add_to_parent(p);
 	}
+	else
+	{
+		gtk_combo_box_text_remove_all(p->self);
+	}
 	
 	list=p->view?p->view:p->data;
 
@@ -244,11 +248,7 @@ int cu_ctrl_init_list(CUCtrl p)
 		int i;
 		for(i=0;list[i]!=NULL;i++)
 		{
-#if GTK_CHECK_VERSION(3,0,0)
 			gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(p->self),NULL,list[i]);
-#else
-			gtk_combo_box_append_text(GTK_COMBO_BOX(p->self),list[i]);
-#endif
 		}
 	}
 	g_signal_connect(p->self,"changed",G_CALLBACK(list_changed),p);
@@ -630,13 +630,55 @@ int cu_ctrl_init_font(CUCtrl p)
 	return 0;
 }
 
+#if GTK_CHECK_VERSION(4,0,0)
+static void ui_image_draw(GtkDrawingArea *area, cairo_t *cr,
+	int width, int height, gpointer user_data)
+{
+	cairo_surface_t *image = g_object_get_data(G_OBJECT(area), "ui-pixbuf");
+	if(!image)
+		return;
+	cairo_translate(cr,5,5);
+	GtkNative *native=gtk_widget_get_native(GTK_WIDGET(area));
+	GdkSurface *surface=gtk_native_get_surface(native);
+	double scale=gdk_surface_get_scale(surface);
+	int image_scale = (int)(uintptr_t)g_object_get_data(G_OBJECT(area), "ui-pixbuf-scale");
+	if(image_scale>=scale)
+	{
+		cairo_surface_set_device_scale(image,scale,scale);
+		cairo_scale(cr, scale*1.0/image_scale, scale*1.0/image_scale);
+	}
+	cairo_set_source_surface(cr, image, 0, 0);
+	cairo_paint(cr);
+}
+#else
+static gboolean ui_image_draw(GtkWidget *widget, cairo_t *cr, gpointer user_data)
+{
+	int scale=gtk_widget_get_scale_factor(widget);
+	cairo_surface_t *image = g_object_get_data(G_OBJECT(widget), "ui-pixbuf");
+	if(!image)
+		return FALSE;
+	int image_scale = (int)(uintptr_t)g_object_get_data(G_OBJECT(widget), "ui-pixbuf-scale");
+	cairo_translate(cr, 5 ,5);
+	if(image_scale>=scale)
+	{
+		cairo_surface_set_device_scale(image,scale,scale);
+		cairo_scale(cr, scale*1.0/image_scale, scale*1.0/image_scale);
+	}
+	cairo_set_source_surface(cr, image, 0, 0);
+	cairo_paint(cr);
+	return FALSE;
+}
+#endif
+
 int cu_ctrl_init_image(CUCtrl p)
 {
+	p->self = gtk_drawing_area_new();
+	gtk_widget_set_size_request(GTK_WIDGET(p->self), p->pos.w, p->pos.h);
 #if GTK_CHECK_VERSION(4,0,0)
-	p->self=gtk_picture_new();
-	gtk_picture_set_content_fit(GTK_PICTURE(p->self),GTK_CONTENT_FIT_SCALE_DOWN);
+	gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(p->self),
+		(GtkDrawingAreaDrawFunc)ui_image_draw, NULL, NULL);
 #else
-	p->self=gtk_image_new();
+	g_signal_connect(p->self, "draw", G_CALLBACK(ui_image_draw), NULL);
 #endif
 	cu_ctrl_add_to_parent(p);
 	return 0;
@@ -746,6 +788,8 @@ static DestroySelfFunc destroy_funcs[]={
 	NULL,
 	NULL,
 	NULL,
+	NULL,
+	NULL,
 };
 
 void cu_ctrl_destroy_self(CUCtrl p)
@@ -779,6 +823,136 @@ static bool ui_image_path(const char *file,char path[256])
 	if(l_file_exists(path))
 		return true;
 	return false;
+}
+
+static GdkPixbuf *ui_image_load_pixbuf_at_size(const char *file,int width,int height)
+{
+	GdkPixbuf *pixbuf;
+	if(!file)
+	{
+		return 0;
+	}
+	{
+		char *contents;
+		size_t length;
+		if(file[0]=='<')
+		{
+			contents=l_strdup(file);
+			length=strlen(contents);
+			goto LOAD_BUF;
+		}
+		contents=l_file_get_contents(file,&length,NULL);
+		if(!contents)
+		{
+			// fprintf(stderr,"load %s contents fail\n",file);
+			return NULL;
+		}
+LOAD_BUF:
+		GdkPixbufLoader *load=gdk_pixbuf_loader_new();
+		if(width>0 && height>0)
+		{
+			gdk_pixbuf_loader_set_size(load,width,height);
+		}
+		if(!gdk_pixbuf_loader_write(load,(const guchar*)contents,length,NULL))
+		{
+			l_free(contents);
+			g_object_unref(load);
+		 	// fprintf(stderr,"load image %s fail\n",file);
+			return NULL;
+		}
+		l_free(contents);
+		gdk_pixbuf_loader_close(load,NULL);
+		pixbuf=gdk_pixbuf_loader_get_pixbuf(load);
+		if(pixbuf!=NULL)
+			g_object_ref(pixbuf);
+		g_object_unref(load);
+	}
+	return pixbuf;
+}
+
+
+static inline uint8_t MULT(uint8_t c,uint8_t a)
+{
+	uint32_t t = c * a + 0x80;
+	return ((t >> 8) + t) >> 8;
+}
+
+static cairo_surface_t *ui_image_load_at_size(const char *file,int width,int height)
+{
+	GdkPixbuf *pixbuf=ui_image_load_pixbuf_at_size(file,width,height);
+	if(!pixbuf)
+		return NULL;
+	int n_channels=gdk_pixbuf_get_n_channels(pixbuf);
+	if(n_channels!=3 && n_channels!=4)
+	{
+		// fprintf(stderr,"pixbuf channels %d is not supported\n",n_channels);
+		g_object_unref(pixbuf);
+		return NULL;
+	}
+	int format=n_channels==4?CAIRO_FORMAT_ARGB32:CAIRO_FORMAT_RGB24;
+	width=gdk_pixbuf_get_width(pixbuf);
+	height=gdk_pixbuf_get_height(pixbuf);
+	cairo_surface_t *r=cairo_image_surface_create(format,width,height);
+	cairo_surface_flush(r);
+	const uint8_t *src=gdk_pixbuf_get_pixels(pixbuf);
+	uint8_t *dst=cairo_image_surface_get_data(r);
+	int stride=gdk_pixbuf_get_rowstride(pixbuf);
+	int rstride=cairo_image_surface_get_stride(r);
+
+	for (int y = 0; y < height; y++)
+	{
+		const uint8_t *p = src + y * stride;
+		uint8_t *q = dst + y * rstride;
+		for(int x=0;x<width;x++)
+		{
+			if(n_channels==3)
+			{
+#if L_BYTE_ORDER==L_LITTLE_ENDIAN
+				q[0]=p[2];
+				q[1]=p[1];
+				q[2]=p[0];
+#else
+				q[1]=p[0];
+				q[2]=p[1];
+				q[3]=p[2];
+#endif
+				p+=3;
+				q+=4;
+			}
+			else
+			{
+#if L_BYTE_ORDER==L_LITTLE_ENDIAN
+				q[0]=MULT(p[2], p[3]);
+				q[1]=MULT(p[1], p[3]);
+				q[2]=MULT(p[0], p[3]);
+				q[3]=p[3];
+#else
+				q[0]=p[3];
+				q[1]=MULT(p[0], p[3]);
+				q[2]=MULT(p[1], p[3]);
+				q[3]=MULT(p[2], p[3]);
+#endif
+				p+=4;
+				q+=4;
+			}
+		}
+	}
+	cairo_surface_mark_dirty(r); 
+	g_object_unref(pixbuf);
+	// if(!strcmp(file,"jian1.svg"))
+		// cairo_surface_write_to_png(r,"/tmp/jian1.png");
+	return r;
+}
+
+static int get_image_file_scale(const char *s)
+{
+	const char *p=strchr(s,'@');
+	if(!p)
+		return 1;
+	int scale=atoi(p+1);
+	if(scale<1 || scale>4)
+		scale=1;
+	return scale;
 }
 
 int cu_ctrl_set_self(CUCtrl p,const char *s)
@@ -856,19 +1030,22 @@ int cu_ctrl_set_self(CUCtrl p,const char *s)
 		char real[256];
 		if(s && s[0] && ui_image_path(s,real))
 		{
-#if GTK_CHECK_VERSION(4,0,0)
-			gtk_picture_set_filename(GTK_PICTURE(p->self),real);
-#else
-			gtk_image_set_from_file(GTK_IMAGE(p->self),real);
-#endif
+			cairo_surface_t *pb=ui_image_load_at_size(real,0,0);
+			if(pb)
+			{
+				g_object_set_data_full(G_OBJECT(p->self),"ui-pixbuf",pb,(GDestroyNotify)cairo_surface_destroy);
+				g_object_set_data(G_OBJECT(p->self),"ui-pixbuf-scale",LINT_TO_PTR(get_image_file_scale(s)));
+			}
+			else
+			{
+				g_object_set_data_full(G_OBJECT(p->self),"ui-pixbuf",NULL,NULL);
+			}
 		}
 		else
 		{
-#if GTK_CHECK_VERSION(4,0,0)
-#else
-			gtk_image_clear(GTK_IMAGE(p->self));
-#endif
+			g_object_set_data_full(G_OBJECT(p->self),"ui-pixbuf",NULL,NULL);
 		}
+		gtk_widget_queue_draw(GTK_WIDGET(p->self));
 		break;
 	}
 	case CU_TEXTAREA:

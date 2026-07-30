@@ -86,7 +86,11 @@ static void stream_result(LProcessBuffer *result)
 	SPAWN_ARG *arg=l_ptr_context(result);
 	LString *str=arg->str;
 	if(!result->data)
+	{
+		if(str->len)
+			goto FLUSH;
 		goto END;
+	}
 	if(!arg->stream)
 	{
 		if(l_str_has_prefix(result->str,"yong:text "))
@@ -125,6 +129,7 @@ static void stream_result(LProcessBuffer *result)
 		l_buffer_free((LBuffer*)result);
 		if(!arg->skip_prefix && str->len<10)
 			return;
+FLUSH:
 		if(!arg->skip_prefix)
 		{
 			arg->skip_prefix=true;

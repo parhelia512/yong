@@ -512,6 +512,13 @@ void y_xim_send_string2(const char *s,int flag)
 					y_ui_show_tip(YT("没有匹配的数据"));
 				}
 			}
+			else if(!strcmp(s,"$EXIT()"))
+			{
+				if(y_ui.quit)
+					y_ui_quit();
+				else
+					exit(0);
+			}
 			else
 			{
 				goto COPY;
@@ -1084,15 +1091,14 @@ const char *y_im_get_path(const char *type)
 	return "yong";
 #elif defined(CFG_XIM_METRO)
 	char sys[128];
-	if(!SHGetSpecialFolderPathA(NULL,sys,CSIDL_PROGRAM_FILESX86,FALSE))
-		SHGetSpecialFolderPathA(NULL,sys,CSIDL_PROGRAM_FILES,FALSE);
+	SHGetSpecialFolderPathA(NULL,sys,CSIDL_PROGRAM_FILES,FALSE);
 	if(!strcmp(type,"LIB"))
 	{
 		static char path[256];
 #ifdef _WIN64
 		sprintf(path,"%s\\yong\\w64",sys);
 #else
-		sprintf(path,"%s\\yong",sys);
+		sprintf(path,"%s\\yong\\w32",sys);
 #endif
 		ret=path;
 	}
@@ -1136,10 +1142,7 @@ const char *y_im_get_path(const char *type)
 	}
 	else
 	{
-		if(!strcmp(type,"LIB"))
-			ret=".";
-		else
-			ret="..";
+		ret=(!strcmp(type,"LIB"))?".":"..";
 	}
 #else
 	if(!strcmp(type,"HOME"))
@@ -1181,12 +1184,9 @@ const char *y_im_get_path(const char *type)
 	else
 	{
 #ifdef _WIN64
-		if(!strcmp(type,"LIB"))
-			ret="w64";
-		else
-			ret=".";
+		ret=(!strcmp(type,"LIB"))?"w64":".";
 #else
-		ret=".";
+		ret=(!strcmp(type,"LIB"))?"w32":".";
 #endif
 	}
 #endif
@@ -1856,7 +1856,7 @@ char **y_im_parse_argv(const char *s,int size)
 				l_ptr_array_free(arr,l_free);
 				return NULL;
 			}
-			t=y_im_get_config_string_gb(cfg[0],cfg[1]);
+			t=y_im_get_config_string(cfg[0],cfg[1]);
 			l_strfreev(cfg);
 			if(!t)
 			{
@@ -1875,7 +1875,13 @@ char **y_im_parse_argv(const char *s,int size)
 				return NULL;
 			}
 			l_free(p);
-			l_ptr_array_nth(arr,i)=l_strdup(eim->CandTable[eim->SelectIndex]);
+			const char *s=eim->CandTable[eim->SelectIndex];
+			int skip=y_im_str_desc(s,NULL);
+			if(skip>0)
+				s+=skip;
+			char temp[1024];
+			l_gb_to_utf8(s,temp,sizeof(temp));
+			l_ptr_array_nth(arr,i)=l_strdup(temp);
 		}
 		else if(!strcmp(p,"$CODE"))
 		{

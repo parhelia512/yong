@@ -6,5 +6,6 @@ int y_assoc_get(void *handle,const char *src,int slen,
 void y_assoc_move(void *handle,const char *phrase);
 void y_assoc_free(void *handle);
 void *y_assoc_new(const char *file,int save);
+const char *y_assoc_get_save_file(void *handle);
 
 #endif/*_ASSOC_H_*/

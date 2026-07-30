@@ -125,7 +125,8 @@ static void calc_ui_scale(void)
 	{
 		ui_scale=strtod(temp,NULL);
 	}
-	ui_res_scale=ui_scale*gtk_widget_get_scale_factor(w);
+	ui_surface_scale=gtk_widget_get_scale_factor(w);
+	ui_res_scale=ui_scale*ui_surface_scale;
 	if(w!=MainWin)
 	{
 		gtk_widget_destroy(w);
@@ -248,17 +249,7 @@ static int ui_init(void)
 	wayland_tip_center=y_im_get_config_int("main","wayland_tip_center");
 
 	load_app_indicator();
-
-	L_LOOP_SCHED sched={
-		.sleep=ui_timer_add,
-		.idle=ui_idle_add,
-		.main=ui_call,
-		.poll=ui_poll,
-	};
-	l_loop_sched(&sched);
-	l_thrdp_init(4);
-	l_co_init();
-
+	
 	GtkClipboard *cb=gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
 	if(cb!=NULL)
 	{
@@ -506,7 +497,7 @@ static gboolean main_click_cb (GtkWidget *window,GdkEventButton *event,gpointer 
 		CONNECT_ID *id=y_xim_get_connect();
 		if(!id || (id && !id->focus))
 			YongShowMain(0);
-		return True;
+		return TRUE;
 	}
 	
 	if(event->button==1 && click==0 && !MainWin_Drag)
@@ -623,8 +614,7 @@ static gboolean on_main_draw(GtkWidget *window,cairo_t *cr)
 
 static gboolean main_enter_leave_notify(GtkWidget *window,GdkEventCrossing *event)
 {
-	int tran;
-	tran=MainWin_tran;
+	int tran=MainWin_tran;
 
 	if(!MainWin_auto_tran)
 		return FALSE;
@@ -684,7 +674,6 @@ static void on_screen_size_changed(void *unused)
 
 int ui_main_update(UI_MAIN *param)
 {
-	int tran;
 	if(!MainWin)
 	{
 		MainWin = gtk_window_new(is_wayland?GTK_WINDOW_TOPLEVEL:GTK_WINDOW_POPUP);
@@ -734,10 +723,10 @@ int ui_main_update(UI_MAIN *param)
 		ui_add_class(GTK_WIDGET(MainWin),"ywindow");
 	}
 
-	if(MainWin_bg)
+	if(MainTheme.bg)
 	{
-		ui_image_free(MainWin_bg);
-		MainWin_bg=0;
+		ui_image_free(MainTheme.bg);
+		MainTheme.bg=NULL;
 	}
 	if(!param->bg)
 	{
@@ -748,16 +737,19 @@ int ui_main_update(UI_MAIN *param)
 	MainTheme.line_width=param->line_width;
 	MainTheme.move_style=param->move_style;
 	MainTheme.radius=param->radius;
+	MainTheme.shadow_size=0;	//param->shadow_size;
+	MainTheme.shadow_color=param->shadow_color;
 	if(param->bg[0]=='#')
 	{
-		MainWin_bgc=ui_color_parse(param->bg);
-		MainWin_border=ui_color_parse(param->border);
+		MainTheme.bg_color=ui_color_parse(param->bg);
+		MainTheme.border=ui_color_parse(param->border);
 		MainWin_W=param->rc.w;MainWin_H=param->rc.h;
 		if(param->scale!=1 && ui_scale!=1)
 		{
 			MainWin_W=(int)(MainWin_W*ui_scale);
 			MainWin_H=(int)(MainWin_H*ui_scale);
 			MainTheme.radius=(int)round(param->radius*ui_scale);
+			MainTheme.shadow_size=(int)round(param->shadow_size*ui_scale);
 		}
 		gtk_widget_shape_combine_region(MainWin,NULL);
 		gtk_widget_input_shape_combine_region(MainWin,NULL); 
@@ -767,7 +759,7 @@ int ui_main_update(UI_MAIN *param)
 	{
 		if(param->scale!=1 && param->force_scale)
 		{
-			MainWin_bg=ui_image_load_scale(param->bg,ui_res_scale,param->rc.w,param->rc.h,IMAGE_SKIN);
+			MainTheme.bg=ui_image_load_scale(param->bg,ui_res_scale,param->rc.w,param->rc.h,IMAGE_SKIN);
 			MainWin_W=param->rc.w;MainWin_H=param->rc.h;
 			if(param->scale!=1 && ui_scale!=1)
 			{
@@ -778,12 +770,12 @@ int ui_main_update(UI_MAIN *param)
 		else
 		{
 			MainTheme.scale=1;
-			MainWin_bg=ui_image_load(param->bg,IMAGE_SKIN);
-			ui_image_size(MainWin_bg,&MainWin_W,&MainWin_H);
+			MainTheme.bg=ui_image_load(param->bg,IMAGE_SKIN);
+			ui_image_size(MainTheme.bg,&MainWin_W,&MainWin_H);
 		}
 		if(!gtk_widget_is_composited(MainWin))
 		{
-			UI_REGION r=ui_image_region(MainWin_bg,ui_scale/ui_res_scale);
+			UI_REGION r=ui_image_region(MainTheme.bg,ui_scale/ui_res_scale);
 			gtk_widget_shape_combine_region(MainWin,r);
 			gtk_widget_input_shape_combine_region(MainWin,r);
 			g_object_set_data_full(G_OBJECT(MainWin),"input-shape",r,(GDestroyNotify)ui_region_destroy);
@@ -798,12 +790,12 @@ int ui_main_update(UI_MAIN *param)
 	}
 	gtk_window_resize(GTK_WINDOW(MainWin),MainWin_W,MainWin_H);
 	gtk_widget_set_size_request(GTK_WIDGET(MainWin),MainWin_W,MainWin_H);
-	MainWin_move=param->move;
+	MainTheme.move=param->move;
 	MainWin_X=param->rc.x;MainWin_Y=param->rc.y;
 	MainWin_pos_custom=MainWin_Y!=-1;
 	MainWin_tran=param->tran;
 	MainWin_auto_tran=param->auto_tran;
-	tran=MainWin_tran;
+	int tran=MainWin_tran;
 	if(MainWin_auto_tran && !MainWin_over)
 		tran=255-(255-tran)*2/3;
 	ui_win_tran(MainWin,tran);
@@ -890,16 +882,15 @@ static gboolean input_click_cb (GtkWidget *window,GdkEventButton *event,gpointer
 		CONNECT_ID *id;
 		if(!InputWin_Drag)
 		{
-			int i,count;
 			EXTRA_IM *eim=CURRENT_EIM();
 			double x=event->x;
 			double y=event->y;
 			if(x < InputTheme.CandX || y< InputTheme.CandY)
 				return TRUE;
 			if(!eim) return TRUE;
-			count=eim->CandWordCount;
+			int count=eim->CandWordCount;
 			if(!count) return TRUE;
-			for(i=0;i<count;i++)
+			for(int i=0;i<count;i++)
 			{
 				double *pos=im.CandPosX+i*3;
 				if(InputTheme.line==2)
@@ -1110,7 +1101,7 @@ int ui_input_update(UI_INPUT *param)
 		g_signal_connect (G_OBJECT(InputWin), "button-release-event",
 			G_CALLBACK(input_click_cb),GINT_TO_POINTER (1));
 		g_signal_connect(G_OBJECT(InputWin),"draw",
-			G_CALLBACK(on_input_draw),0);
+			G_CALLBACK(on_input_draw),NULL);
 		
 		//ui_set_css(GTK_WIDGET(InputWin),"window{background-color:transparent}\n");
 		ui_add_class(GTK_WIDGET(InputWin),"ywindow");
@@ -1185,22 +1176,26 @@ int ui_input_update(UI_INPUT *param)
 	InputTheme.OffY=param->off.y;
 	
 	InputTheme.scale=param->scale;
-	InputTheme.radius=param->radius;
+	InputTheme.radius[0]=param->radius[0];
+	InputTheme.radius[1]=param->radius[1];
+
+	InputTheme.shadow_size=param->shadow_size;
+	InputTheme.shadow_color=param->shadow_color;
 
 	if(InputTheme.scale==1 && ui_scale!=1)
 	{
 		double temp=ui_scale;
 		ui_scale=1;
-		InputTheme.layout=ui_font_parse(InputWin,param->font,ui_scale);
+		InputTheme.layout=ui_font_parse(InputWin,param->font,ui_scale,y_ui_get_scale(1));
 		if(param->page.show && param->page.scale!=0 && param->page.scale!=1)
-			InputTheme.page.layout=ui_font_parse(InputWin,param->font,ui_scale*param->page.scale);
+			InputTheme.page.layout=ui_font_parse(InputWin,param->font,ui_scale*param->page.scale,y_ui_get_scale(1));
 		ui_scale=temp;
 	}
 	else
 	{
-		InputTheme.layout=ui_font_parse(InputWin,param->font,ui_scale);
+		InputTheme.layout=ui_font_parse(InputWin,param->font,ui_scale,y_ui_get_scale(1));
 		if(param->page.show && param->page.scale!=0 && param->page.scale!=1)
-			InputTheme.page.layout=ui_font_parse(InputWin,param->font,ui_scale*param->page.scale);
+			InputTheme.page.layout=ui_font_parse(InputWin,param->font,ui_scale*param->page.scale,y_ui_get_scale(1));
 	}
 	
 	InputTheme.line_width=param->line_width;
@@ -1233,6 +1228,8 @@ int ui_input_update(UI_INPUT *param)
 			InputTheme.CodeX=(int)round(ui_scale*InputTheme.CodeX);
 			InputTheme.CodeY=(int)round(ui_scale*InputTheme.CodeY);
 			InputTheme.CandX=(int)round(ui_scale*InputTheme.CandX);
+			InputTheme.mWidth=(int)round(ui_scale*InputTheme.mWidth);
+			InputTheme.mHeight=(int)round(ui_scale*InputTheme.mHeight);
 			
 			int h2=InputTheme.Height/2;
 			int pad=InputTheme.CandY-h2;
@@ -1246,7 +1243,10 @@ int ui_input_update(UI_INPUT *param)
 			InputTheme.pad[2]*=ui_scale;
 			InputTheme.pad[3]*=ui_scale;
 
-			InputTheme.radius=(int)round(ui_scale*InputTheme.radius);
+			InputTheme.radius[0]=(int)round(ui_scale*InputTheme.radius[0]);
+			InputTheme.radius[1]=(int)round(ui_scale*InputTheme.radius[1]);
+
+			InputTheme.shadow_size=(int)round(ui_scale*InputTheme.shadow_size);
 		}
 		if(InputTheme.WorkBottom==0)
 		{
@@ -1265,12 +1265,12 @@ int ui_input_update(UI_INPUT *param)
 		InputTheme.Bottom=param->bottom;
 		if(param->scale!=1 && param->force_scale)
 		{
-			bg=ui_image_load_scale(tmp,ui_scale,param->w,param->h,IMAGE_SKIN);
+			bg=ui_image_load_scale(tmp,ui_res_scale,param->w,param->h,IMAGE_SKIN);
 			ui_image_size(bg,&bg_w,&bg_h);
 			if(bg_w!=param->w)
 			{
 				// adjust all size here
-				double scale=bg_w*1.0L/param->w;
+				double scale=bg_w*1.0L/param->w/ui_surface_scale;
 				InputTheme.line_width=(int)round(scale*InputTheme.line_width);
 				InputTheme.Width=(int)round(scale*InputTheme.Width);
 				InputTheme.Height=(int)round(scale*InputTheme.Height);
@@ -1296,7 +1296,7 @@ int ui_input_update(UI_INPUT *param)
 					ui_font_free(InputTheme.layout);
 					double temp=ui_scale;
 					ui_scale=scale;
-					InputTheme.layout=ui_font_parse(InputWin,param->font,ui_scale);
+					InputTheme.layout=ui_font_parse(InputWin,param->font,ui_scale,y_ui_get_scale(1));
 					ui_scale=temp;
 				}
 
@@ -1308,7 +1308,7 @@ int ui_input_update(UI_INPUT *param)
 		}
 		else
 		{
-			bg=ui_image_load_scale(tmp,ui_res_scale,-1,-1,IMAGE_SKIN);
+			bg=ui_image_load_scale(tmp,ui_surface_scale,-1,-1,IMAGE_SKIN);
 		}
 		if(param->work_bottom>0)
 		{
@@ -1332,8 +1332,8 @@ int ui_input_update(UI_INPUT *param)
 		bg=ui_input_bg_adjust(bg,param->cand_max,param->work_bottom);
 
 		ui_image_size(bg,&bg_w,&bg_h);
-		bg_w=(int)round(bg_w*ui_scale/ui_res_scale);
-		bg_h=(int)round(bg_h*ui_scale/ui_res_scale);
+		bg_w=(int)round(bg_w/ui_surface_scale);
+		bg_h=(int)round(bg_h/ui_surface_scale);
 		// printf("bg_w=%d,bg_h=%d\n",bg_w,bg_h);
 
 		InputTheme.RealHeight=bg_h;
@@ -1374,7 +1374,7 @@ int ui_input_update(UI_INPUT *param)
 		}
 	}
 
-	InputTheme.bg_first=ui_color_parse(param->bg[1]?param->bg[1]:"#00FFFFFF");
+	InputTheme.bg_first=ui_color_parse(param->bg[1]?param->bg[1]:"#FFFFFF00");
 
 	InputTheme.text[0]=ui_color_parse(param->text[0]);
 	InputTheme.text[1]=ui_color_parse(param->text[1]);
@@ -1391,6 +1391,7 @@ int ui_input_update(UI_INPUT *param)
 		{
 			UI_FONT font=InputTheme.page.layout?InputTheme.page.layout:InputTheme.layout;
 			int size=get_input_text_height(font);
+			InputTheme.page.size=size;
 			InputTheme.page.up[0]=ui_image_load_page(size,InputTheme.text[4],true);
 			InputTheme.page.up[1]=ui_image_load_page(size,InputTheme.page.color,true);
 			InputTheme.page.down[0]=ui_image_load_page(size,InputTheme.text[4],false);
@@ -2038,13 +2039,10 @@ static void ui_tray_update(UI_TRAY *param)
 	char icon1[256],icon2[256];
 	int ret=ui_image_get_path(param->icon[0],icon1,sizeof(icon1));
 	ret|=ui_image_get_path(param->icon[1],icon2,sizeof(icon2));
-	if(ret==0)
+	if(ret==0 || strstr(icon1,".zip/"))
 	{
-		if(strstr(icon1,".zip/"))
-		{
-			snprintf(icon1,sizeof(icon1),"%s/skin/%s",y_im_get_path("DATA"),"tray1.png");
-			snprintf(icon2,sizeof(icon2),"%s/skin/%s",y_im_get_path("DATA"),"tray2.png");
-		}
+		snprintf(icon1,sizeof(icon1),"%s/skin/%s",y_im_get_path("DATA"),"tray1.png");
+		snprintf(icon2,sizeof(icon2),"%s/skin/%s",y_im_get_path("DATA"),"tray2.png");
 	}
 	l_fullpath(icon1,icon1,sizeof(icon1));
 	l_fullpath(icon2,icon2,sizeof(icon2));
@@ -2149,6 +2147,7 @@ static gboolean YongSendFile_real(char *fn)
 			len=fread(temp,1,sizeof(temp)-1,fp);
 			temp[len]=0;
 			YongSendClipboard(temp);
+			fclose(fp);
 		}
 	}
 	else
@@ -2195,12 +2194,10 @@ static gboolean YongSendFile_real(char *fn)
 
 void YongSendFile(const char *fn)
 {
-	int len;
-	char *utf8;
-	if(!strcmp(y_xim_get_name(),"fbterm"))
+	if(y_ui_is_dummy())
 		return;
-	len=strlen(fn);
-	utf8=g_malloc(len*2+1);
+	int len=strlen(fn);
+	char *utf8=g_malloc(len*2+1);
 	y_im_str_encode(fn,utf8,0);
 	g_idle_add_full(G_PRIORITY_DEFAULT,(GSourceFunc)YongSendFile_real,utf8,g_free);
 }
@@ -2229,10 +2226,10 @@ void YongSendClipboard(const char *s)
 {
 	gchar *utf8;
 	int len;
-	
-	if(!strcmp(y_xim_get_name(),"fbterm"))
-		return;
 
+	if(y_ui_is_dummy())
+		return;
+	
 	len=strlen(s);
 	utf8=g_malloc(len*2+1);
 	y_im_str_encode(s,utf8,0);
@@ -2848,6 +2845,12 @@ void ui_cfg_ctrl(char *name,...)
 		*x=MainWin_X;
 		*y=MainWin_Y;
 	}
+	else if(!strcmp(name,"capslock"))
+	{
+		int ybus_xim_get_capslock(void);
+		int *result=va_arg(ap,int *);
+		*result=ybus_xim_get_capslock();
+	}
 	va_end(ap);
 }
 
@@ -3018,7 +3021,7 @@ static gboolean ui_call_wraper(void **p)
 	void *arg=p[1];
 	l_free(p);
 	cb(arg);
-	return FALSE;
+	return G_SOURCE_REMOVE;
 }
 
 static int ui_call(void (*cb)(void*),void *arg)
@@ -3041,6 +3044,16 @@ static void ui_setup_dummy(Y_UI *p);
 
 void ui_setup_default(Y_UI *p)
 {
+	L_LOOP_SCHED sched={
+		.sleep=ui_timer_add,
+		.idle=ui_idle_add,
+		.main=ui_call,
+		.poll=ui_poll,
+	};
+	l_loop_sched(&sched);
+	l_thrdp_init(4);
+	l_co_init();
+
 	if(!getenv("DISPLAY") && !getenv("WAYLAND_DISPLAY"))
 		return ui_setup_dummy(p);
 	p->init=ui_init;
@@ -3094,6 +3107,17 @@ static GMainLoop *dummy_loop;
 static int dummy_ui_init(void)
 {
 	dummy_loop=g_main_loop_new(NULL,0);
+
+	L_LOOP_SCHED sched={
+		.sleep=ui_timer_add,
+		.idle=ui_idle_add,
+		.main=ui_call,
+		.poll=ui_poll,
+	};
+	l_loop_sched(&sched);
+	l_thrdp_init(4);
+	l_co_init();
+
 	return 0;
 }
 
@@ -3102,7 +3126,6 @@ static int dummy_ui_loop(void)
 	g_main_loop_run(dummy_loop);
 	return 0;
 }
-
 
 static void ui_setup_dummy(Y_UI *p)
 {

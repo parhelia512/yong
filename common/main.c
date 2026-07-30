@@ -78,6 +78,8 @@ static uint8_t caps_bd_mode;
 static uint8_t alt_bd_disable;
 
 uint8_t tip_main;
+uint8_t tip_capslock;
+static char tip_focus[8];
 
 static uint16_t assoc_hide;
 
@@ -395,9 +397,8 @@ void update_main_window(void)
 		param.border=l_key_file_get_string(ConfigSkin,main_group,"border");
 		if(!param.border) param.border=l_strdup("#CBCAE6");
 		param.radius=l_key_file_get_int(ConfigSkin,main_group,"radius");
-		if(param.radius<0 || param.radius>7)
+		if(param.radius<0 || param.radius>10)
 			param.radius=0;
-		// param.radius=7;
 	}
 	param.tran=l_key_file_get_int(ConfigSkin,main_group,"tran");
 	if(param.tran<0 || param.tran>255) param.tran=0;
@@ -432,6 +433,24 @@ void update_main_window(void)
 			&param.move.w,&param.move.h);
 	}
 	param.auto_tran=y_im_get_config_int("main","tran");
+
+	if(param.bg[0]=='#')
+	{
+		tmp=(char*)	l_key_file_get_data(ConfigSkin,main_group,"shadow");
+		if(tmp && tmp[0])
+		{
+			int ret,size;
+			char color[32];
+			ret=l_sscanf(tmp,"%d %31s",&size,color);
+			if(ret>=1)
+			{
+				param.shadow_size=size;
+				param.shadow_color=ui_color_parse(ret==2?color:"#00000040");
+				if(size<3 || size>32 || param.shadow_color.a==0)
+					param.shadow_size=0;
+			}
+		}
+	}
 
 	y_ui_main_update(&param);
 	l_free(param.bg);
@@ -496,6 +515,12 @@ void update_main_window(void)
 		YongShowMain(1);
 	}
 	tip_main=y_im_get_config_int("main","tip");
+	tip_capslock=y_im_get_config_int("main","tip_capslock");
+	tmp=(char*)y_im_get_config_data("main","tip_focus");
+	if(!tmp || !tmp[0])
+		tip_focus[0]=0;
+	else
+		l_strcpy(tip_focus,sizeof(tip_focus),tmp);
 }
 
 void update_tray_icon(void)
@@ -657,10 +682,16 @@ void update_input_window(void)
 		param.border=l_key_file_get_string(ConfigSkin,input_group,"border");
 		if(!param.border)
 			param.border=l_strdup("#CBCAE6");
-		param.radius=l_key_file_get_int(ConfigSkin,input_group,"radius");
-		if(param.radius<0 || param.radius>7)
-			param.radius=0;
-		// param.radius=7;
+		param.radius[0]=param.radius[1]=0;
+		char *tmp=(char*)l_key_file_get_data(ConfigSkin,input_group,"radius");
+		if(tmp && tmp[0])
+		{
+			l_sscanf(tmp,"%hhu,%hhu",&param.radius[0],&param.radius[1]);
+			if(param.radius[0]>10)
+				param.radius[0]=10;
+			if(param.radius[1]>10)
+				param.radius[1]=10;
+		}
 	}
 	else
 	{
@@ -783,6 +814,24 @@ void update_input_window(void)
 		l_strfreev(pos);
 	}
 	param.cand_max=l_key_file_get_int(ConfigSkin,input_group,"cand_max");
+
+	if(param.bg[0][0]=='#')
+	{
+		tmp=(char*)	l_key_file_get_data(ConfigSkin,input_group,"shadow");
+		if(tmp && tmp[0])
+		{
+			int ret,size;
+			char color[32];
+			ret=l_sscanf(tmp,"%d %31s",&size,color);
+			if(ret>=1)
+			{
+				param.shadow_size=size;
+				param.shadow_color=ui_color_parse(ret==2?color:"#00000040");
+				if(size<3 || size>32 || param.shadow_color.a==0)
+					param.shadow_size=0;
+			}
+		}
+	}
 
 	y_ui_input_update(&param);
 	for(i=0;i<L_ARRAY_SIZE(param.bg);i++)
@@ -1297,18 +1346,57 @@ void YongShowInput(int show)
 	}
 }
 
-static void ShowLangTipLater(void *tip)
+static void ShowCurrentState(CONNECT_ID *id)
+{
+	EXTRA_IM *eim=CURRENT_EIM();
+	int capslock=-1;
+	char tip[256];
+	int pos=0;
+	y_ui_cfg_ctrl("capslock",&capslock);
+	if(!capslock || !eim || !(eim->Flag&IM_FLAG_CAPITAL) || strchr(tip_focus,'C'))
+		pos=sprintf(tip,"%s",id->lang==LANG_CN?YT("中"):YT("英"));
+	else
+		pos=sprintf(tip,"A");
+	for(int i=0;tip_focus[i]!=0;i++)
+	{
+		switch(tip_focus[i]){
+			case 'b':
+				pos+=sprintf(tip+pos," %s",(id->lang==LANG_CN && id->biaodian==LANG_CN)?"。":".");
+				break;
+			case 'c':
+				pos+=sprintf(tip+pos," %s",id->corner==CORNER_FULL?"〇":"◗");
+				break;
+			case 't':
+				pos+=sprintf(tip+pos," %s",id->trad==0?YT("简"):YT("繁"));
+				break;
+			case 'C':
+			{
+				if(capslock>=0)
+				{
+					pos+=sprintf(tip+pos," %s",capslock==0?"a":"A");
+				}
+			}
+			default:
+				break;
+		}
+	}
+	y_ui_show_tip(tip);
+}
+
+static void ShowStateTipLater(void *unused)
 {
 	CONNECT_ID *id=y_xim_get_connect();
 	if(!id)
 		return;
+#if 0
 	if(!CaretUpdate)
 	{
 		//id->x=id->y=POSITION_ORIG;
 		// FIXME: without caret, don't show the lang tip
 		return;
 	}
-	y_ui_show_tip(tip);	
+#endif
+	ShowCurrentState(id);	
 }
 
 void YongShowMain(int show)
@@ -1323,13 +1411,10 @@ void YongShowMain(int show)
 		{
 			y_ui_main_show(1);
 		}
-		else
+		if((MainNoShow || tip_focus[0]) && id && tip_main)
 		{
-			if(id && tip_main)
-			{
-				CaretUpdate=false;
-				y_ui_timer_add(100,ShowLangTipLater,id->lang==0?YT("中文"):YT("英文"));
-			}
+			CaretUpdate=false;
+			y_ui_timer_add(100,ShowStateTipLater,NULL);
 		}
 #ifndef CFG_NO_KEYBOARD
 		y_kbd_show_with_main(1);
@@ -1470,10 +1555,19 @@ int YongHotKey(int key)
 			y_xim_enable(1);
 		}
 #ifdef _WIN32
-		if(MainNoShow && tip_main)
+		if((MainNoShow || tip_focus[0]) && tip_main)
 		{
-			if(id->state) y_ui_show_tip(YT("打开输入法"));
-			else y_ui_show_tip(YT("关闭输入法"));
+			if(id->state)
+			{
+				if(tip_focus[0])
+					ShowCurrentState(id);
+				else
+					y_ui_show_tip(YT("打开输入法"));
+			}
+			else
+			{
+				y_ui_show_tip(YT("关闭输入法"));
+			}
 		}
 #endif
 		return 1;
@@ -1789,6 +1883,7 @@ ENGLISH_MODE:
 		}
 		im.EnglishMode=1;
 	}
+	
 	if(im.eim)
 	{
 		EXTRA_IM *eim=im.eim;
@@ -1826,6 +1921,7 @@ ENGLISH_MODE:
 				eim->SelectIndex=bh->SelectIndex;
 			}
 		}
+
 		if(!im.EnglishMode && key==key_repeat && !eim->CodeLen && !eim->CandWordCount)
 		{
 			y_xim_send_string(NULL);
@@ -1980,6 +2076,7 @@ IMR_TEST:
 			default:
 				break;
 		}
+
 		if(ret==IMR_NEXT && (eim->CandWordCount || eim->CodeInput[0]))
 		{
 			int pos;
@@ -2264,21 +2361,21 @@ IMR_TEST:
 			else if((key&KEYM_MASK)==KEYM_ALT)
 			{
 				const char *s;
-				key=YK_CODE(key);
+				int code=YK_CODE(key);
 				if(!alt_bd_disable)
 				{
-					s=YongGetPunc(key,!id->biaodian,0);
+					s=YongGetPunc(code,!id->biaodian,0);
 					if(s && eim->CodeLen<MAX_CODE_LEN-1)
 					{
-						eim->CodeInput[eim->CodeLen++]=key;
+						eim->CodeInput[eim->CodeLen++]=code;
 						eim->CodeInput[eim->CodeLen]=0;
 						YongSetLang(LANG_EN);
 						return 1;
 					}
 				}
-				if(im.EnglishMode && key>='1' && key<'1'+eim->CandWordCount)
+				if(im.EnglishMode && code>='1' && code<'1'+eim->CandWordCount)
 				{
-					const char *p=eim->GetCandWord(key-'1');
+					const char *p=eim->GetCandWord(code-'1');
 					if(p!=NULL)
 					{
 						y_xim_send_string(p);
@@ -2291,7 +2388,7 @@ IMR_TEST:
 					}
 					return 1;
 				}
-			}
+			}	
 		}
 		else if(ret==IMR_NEXT && !eim->CodeInput[0])
 		{
@@ -2336,6 +2433,7 @@ IMR_TEST:
 			}
 		}
 	}
+	
 	if(ret==IMR_NEXT)
 	{
 		const char *biaodian;
@@ -2719,12 +2817,17 @@ static void home_change_cb(const char *name)
 	{
 		if(!strcmp(name,"clipboard.txt"))
 			return;
+		int ret=y_im_run_tool("tool_may_write",(void*)name,NULL);
+		if(ret>0)
+			return;
+#if 0
 		void *out=NULL;
 		int ret=y_im_run_tool("tool_get_file","user",&out);
 		if(ret!=0 || !out)
 			return;
 		if(!strcmp(out,name))
 			return;
+#endif
 	}
 	else
 	{

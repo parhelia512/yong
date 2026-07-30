@@ -11,6 +11,9 @@ int main(int arc,char *arg[])
 {
 	int t=1,p=0,res;
 	bool wait;
+#ifdef _WIN32
+	bool console=false;
+#endif
 	
 	for(int i=1;i<arc;i++)
 	{
@@ -18,6 +21,12 @@ int main(int arc,char *arg[])
 		{
 			wait=true;
 			t=7;
+		}
+		else if(!strcmp(arg[i],"--console"))
+		{
+#ifdef _WIN32
+			console=true;
+#endif
 		}
 		else if(!strcmp(arg[i],"-w"))
 		{
@@ -35,7 +44,7 @@ int main(int arc,char *arg[])
 	res=y_run_tool(t,p,wait);
 	printf("%d\n",res);
 #ifdef _WIN32
-	if(AttachConsole((DWORD)-1))
+	if(console && AttachConsole((DWORD)-1))
 		_cprintf("%d\n",res);
 #endif
 	return 0;

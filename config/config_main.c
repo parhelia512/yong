@@ -110,25 +110,17 @@ const char *y_im_get_path(const char *type)
 		}
 		else
 		{
-#ifdef _WIN64
 			ret="../.yong";
-#else
-			ret="./.yong";
-#endif
 		}
 		if(!l_file_exists(ret))
 			l_mkdir(ret,0700);
 	}
 	else
 	{
-#ifdef _WIN64
 		if(!strcmp(type,"LIB"))
 			ret=".";
 		else
 			ret="..";
-#else
-		ret=".";
-#endif
 	}
 #endif
 	return ret;
@@ -368,8 +360,21 @@ int GetSetConfigMain(int argc,char **argv)
 	{
 		if(!strcmp(argv[i],"--get") && i+2<argc)
 		{
+			const char *file=NULL;
+			if(i+3<argc)
+				file=argv[++i];
 			const char *group=argv[++i];
 			const char *key=argv[++i];
+			if(file)
+			{
+				l_key_file_free(config);
+				config=l_key_file_open(file,0,y_im_get_path("HOME"),y_im_get_path("DATA"),NULL);
+				if(!config)
+				{
+					fprintf(stderr,"read file %s fail\n",file);
+					return -1;
+				}
+			}			
 			char *val=l_key_file_get_string(config,group,key);
 			if(!val)
 				return -1;
@@ -460,6 +465,20 @@ int main(int arc,char *arg[])
 			i++;
 			return DictMain(arc-i,arg+i);
 		}
+#ifdef _WIN32
+		else if(!strcmp(arg[i],"--autostart-add") && i<arc-1)
+		{
+			int RegRunAdd(LPCTSTR val);
+			WCHAR temp[MAX_PATH];
+			MultiByteToWideChar(CP_ACP,0,arg[i+1],-1,temp,MAX_PATH);
+			return RegRunAdd(temp);
+		}
+		else if(!strcmp(arg[i],"--autostart-del"))
+		{
+			int RegRunDel(void);
+			return RegRunDel();
+		}
+#endif
 	}
 	
 	temp=l_key_file_get_string(config,"main","config");

@@ -4,6 +4,7 @@ var DIRS=[
 	'cloud',
 	'config',
 	'im',
+	'linim',
 
 	'mb',
 	'vim'

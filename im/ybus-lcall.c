@@ -96,11 +96,10 @@ static void forward_key(SERV_KEY *kev,int handled)
 	}
 }
 
-#include <gtk/gtk.h>
-#include <gdk/gdkx.h>
+#include <X11/Xlib.h>
+Display *ybus_xim_get_display(void);
 static void set_cursor_location_default(YBUS_CONNECT *yconn,YBUS_CLIENT *client)
 {
-	GdkDisplay *dpy;
 	Display *xdpy;
 	Window root;
 	Window window;
@@ -110,10 +109,9 @@ static void set_cursor_location_default(YBUS_CONNECT *yconn,YBUS_CLIENT *client)
 	if(client->track)
 		return;
 	
-	dpy=gdk_display_get_default();
-	if(!GDK_IS_X11_DISPLAY(dpy))
+	xdpy=ybus_xim_get_display();
+	if(!xdpy)
 		return;
-	xdpy=GDK_DISPLAY_XDISPLAY(dpy);
 	root=DefaultRootWindow(xdpy);
 	Atom a= XInternAtom (xdpy, "_NET_ACTIVE_WINDOW", True);
 	Atom type;

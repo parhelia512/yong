@@ -3005,7 +3005,15 @@ static int SPDoSearch(int adjust)
 			}
 			CodeMatch=py2_pos_of_sp(temp,CodeMatch);
 			if(CodeMatch>=len)
+			{
+				if(len==1)
+				{
+					// len=1时，不能再往前退了，当前就是唯一可选的编码长度
+					CodeMatch=1;
+					break;
+				}
 				CodeMatch=len-1;
+			}
 			if(CodeMatch<=0)
 			{
 				CodeMatch=0;
@@ -3132,6 +3140,28 @@ static int PinyinDoSearch(int adjust)
 
 	if(mb->fuzzy && CodeGetLen==0 && EIM.CaretPos==EIM.CodeLen)
 		EIM.CodeLen=EIM.CaretPos=fuzzy_correct(mb->fuzzy,EIM.CodeInput,EIM.CodeLen);
+	if(AssistMode && CodeGetLen==0 && EIM.CodeLen==4 && EIM.CaretPos==4 && (mb->ass_mb || mb->yong))
+	{
+		char code[8];
+		strcpy(code,EIM.CodeInput);code[2]=0;
+		int count=y_mb_set(mb,code,2,hz_filter_temp);
+		if(count>0)
+		{
+			CSET_GROUP_CALC *g=cset_calc_group_new(&cs);
+			g->count=y_mb_assist_get2(mb,g->phrase,Y_MB_DATA_CALC,EIM.CodeInput+2,0);
+			if(g->count)
+			{
+				cset_prepend(&cs,(CSET_GROUP*)g);
+				CodeMatch=4;
+				PhraseListCount=g->count;
+				EIM.CandPageCount=PhraseListCount/EIM.CandWordMax+
+						((PhraseListCount%EIM.CandWordMax)?1:0);
+				TableGetCandWords(PAGE_FIRST);
+				AssistMode=2;
+				return PhraseListCount;
+			}
+		}
+	}
 
 	while(!adjust && !AssistMode && 
 			mb->split>=2 && (EIM.CodeLen%mb->split==1) && 
@@ -3446,13 +3476,15 @@ static char *PinyinGetCandWord(int index)
 		else
 		{
 			int gblen=l_gb_strlen(ret,-1);
+			int RealCodeMatch=CodeMatch;
 			if((l_predict_sp || mb->split==2) && PredictCalcMark==0 &&
-					CodeGetLen>0 && CodeMatch>=3 && (CodeMatch&0x01) &&
+					CodeGetLen>=0 && CodeMatch>=3 && (CodeMatch&0x01) &&
 					pos<cset_calc_group_count(&cs) &&
 					gblen*2==CodeMatch-1)
 			{
 				memcpy(CodeGet+CodeGetLen,EIM.CodeInput,CodeMatch-1);
 				CodeGetLen+=CodeMatch-1;
+				RealCodeMatch--;
 			}
 			else
 			{
@@ -3468,10 +3500,10 @@ static char *PinyinGetCandWord(int index)
 			EIM.CodeLen-=CodeMatch;
 			if(auto_move)
 			{
-				char *code=CodeGet+CodeGetLen-CodeMatch;
+				char *code=CodeGet+CodeGetLen-RealCodeMatch;
 				if(SP==1)
 				{
-					char sp[MAX_CODE_LEN+1];	
+					char sp[MAX_CODE_LEN+1];
 					char temp[MAX_CODE_LEN+1];
 					l_strncpy(sp,code,gblen*2);
 					py2_conv_from_sp(sp,temp,0);
@@ -3734,7 +3766,6 @@ static void PinyinSetAssistCode(const char *s)
 	}
 	if(dirty)
 	{
-		printf("update");
 		EIM.Callback(EIM_CALLBACK_SET_ASSIST_CODE,AssistCode);
 	}
 }
@@ -4210,12 +4241,12 @@ static int PinyinDoInput(int key)
 		if(EIM.CandWordCount && (mb->ass_mb || mb->yong) &&
 				!InsertMode)
 		{
-			if(SP && EIM.CodeLen>=4 && EIM.CodeLen<=5)
+			if((SP || mb->split==2) && EIM.CodeLen>=4 && EIM.CodeLen<=5)
 			{
 				AssistMode=1;
 				l_predict_simple_mode=-1;
 				PinyinDoSearch(0);
-				
+
 				// 如果没有发现符合的2+2直接辅助码，那么保持间接辅助码形式
 				if(cset_calc_group_count(&cs)==0)
 				{
@@ -4314,6 +4345,21 @@ L_EXPORT(int tool_get_file(void *arg,void **out))
 		*out=mb->user;
 	else
 		return -1;
+	return 0;
+}
+
+L_EXPORT(int tool_may_write(void *arg,void **out))
+{
+	if(!mb || !arg)
+		return -1;
+	if(mb->user && !strcmp(mb->user,arg))
+		return 1;
+	const char *file=sentence_get_file();
+	if(file && !strcmp(file,arg))
+		return 1;
+	file=y_assoc_get_save_file(assoc_handle);
+	if(file && !strcmp(file,arg))
+		return 1;
 	return 0;
 }
 

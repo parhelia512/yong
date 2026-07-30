@@ -46,6 +46,10 @@ typedef struct{
 	int auto_tran;
 	/* force use scale param */
 	int force_scale;
+	/* shadow size */
+	int shadow_size;
+	/* shadow clor */
+	UI_COLOR shadow_color;
 }UI_MAIN;
 
 typedef struct{
@@ -58,7 +62,7 @@ typedef struct{
 	/* border color */
 	char *border;
 	/* border radius */
-	int radius;
+	uint8_t radius[2];
 	/* text colors */
 	char *text[7];
 	/* font of the text */
@@ -116,6 +120,10 @@ typedef struct{
 	int force_scale;
 	/* bg first pad */
 	uint8_t pad[4];
+	/* shadow size */
+	int shadow_size;
+	/* shadow clor */
+	UI_COLOR shadow_color;
 }UI_INPUT;
 
 typedef struct{

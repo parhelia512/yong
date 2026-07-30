@@ -1858,7 +1858,7 @@ int py2_parse_sp_jp(const char *input,py_item_t *token)
 		int out=sp_sheng_map[c-'a'];
 		if(!out)
 			return -1;
-		token[pos++]=LINT_TO_PTR(out);
+		token[pos++]=LINT_TO_PTR(out|py2_partial);
 	}
 	return pos;
 }
@@ -2059,9 +2059,9 @@ int py2_build_sp_string(char *out,py_item_t *token,int count)
 		int val=LPTR_TO_INT(token[i]);
 		if(val==py2_split)
 			continue;
-		const char *sp=qp_sp_map[val];
+		const char *sp=qp_sp_map[val&0xffff];
 		out[pos++]=sp[0];
-		out[pos++]=sp[1]?sp[1]:'\'';
+		out[pos++]=(val&py2_partial || !sp[1])?'\'':sp[1];
 	}
 	out[pos]=0;
 	return pos;
@@ -3065,6 +3065,7 @@ void py_init(int split,char *sp)
 				int len;
 				if(line[0]=='#') continue;
 				len=strcspn(line,"\r\n");line[len]=0;
+				if(!line[0]) continue;
 				quan=line;
 				shuang=strchr(line,' ');
 				if(!shuang) break;
@@ -3540,7 +3541,7 @@ int py_parse_sp_jp(const char *input,py_item_t *token)
 		for(j=0;j<L_ARRAY_SIZE(py_all);j++)
 		{
 			if(py_all[j].val==val)
-		{
+			{
 				token[pos++]=py_all+j;
 				break;
 			}

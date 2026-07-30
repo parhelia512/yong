@@ -790,13 +790,11 @@ static IBusText *get_aux_text(const EXTRA_IM *eim)
 
 static IBusLookupTable *get_cand_list(const EXTRA_IM *eim,int line)
 {
-	int i;
-	IBusLookupTable *t;
 	if((!eim->CodeInput[0] && !eim->StringGet[0]) || eim->CandWordCount==0)
 		return NULL;
-	t=p_ibus_lookup_table_new(eim->CandWordCount,eim->SelectIndex,TRUE,FALSE);
+	IBusLookupTable *t=p_ibus_lookup_table_new(eim->CandWordCount,eim->SelectIndex,TRUE,FALSE);
 	p_ibus_lookup_table_set_orientation(t,line==2?IBUS_ORIENTATION_VERTICAL:IBUS_ORIENTATION_HORIZONTAL);
-	for(i=0;i<eim->CandWordCount;i++)
+	for(int i=0;i<eim->CandWordCount;i++)
 	{
 		IBusText *text;
 		if(im.Hint && im.CodeTips[i][0])
@@ -852,12 +850,10 @@ int ybus_ibus_input_draw(int line)
 		p_ibus_engine_hide_lookup_table(engine);
 		return 0;
 	}
-	IBusText *text;
-	text=get_aux_text(eim);
+	IBusText *text=get_aux_text(eim);
 	if(text)
 		p_ibus_engine_update_auxiliary_text(engine,text,TRUE);
-	IBusLookupTable *tab;
-	tab=get_cand_list(eim,line);
+	IBusLookupTable *tab=get_cand_list(eim,line);
 	if(text && tab)
 	{
 		p_ibus_engine_update_lookup_table(engine,tab,TRUE);

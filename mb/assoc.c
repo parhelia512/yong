@@ -256,3 +256,11 @@ void y_assoc_move(void *handle,const char *phrase)
 		s++;
 	}
 }
+
+const char *y_assoc_get_save_file(void *handle)
+{
+	if(!handle)
+		return NULL;
+	ASSOC *p=handle;
+	return p->file;
+}
