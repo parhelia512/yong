@@ -2525,6 +2525,199 @@ int py2_conv_to_sp3(const char *s,char *out)
 	}
 	return -1;
 }
+
+
+int py2_conv_to_sp4(const char *py,int py_len,const char *zi,int zi_len,char *out,uint32_t (*first_code)(uint32_t,void*),void *arg)
+{
+	typedef struct {
+        const char * zi_ptr;
+       	int py_pos;
+		int cand_cnt;
+		int cand_idx;
+		int  cand[6];
+		uint32_t code;
+    } frame_t;
+
+    frame_t stack[64];
+    int deep = 0;
+	frame_t *f = &stack[deep];
+    f->zi_ptr   = zi;
+    f->py_pos   = 0;
+	f->cand_cnt = py_tree_get(&py2_index,py,f->cand);
+	f->cand_idx = f->cand_cnt-1;
+
+	for(int i=1;;i++)
+	{
+		frame_t *p=&stack[i];
+		p->zi_ptr=l_gb_next_char(p[-1].zi_ptr);
+		if(p->zi_ptr>=zi+zi_len)
+			break;
+		p->code=0;
+	}
+
+	while(deep>=0)
+	{
+		if(f->cand_idx==-1)
+		{
+			f=&stack[--deep];
+			continue;
+		}
+		int val=f->cand[f->cand_idx--];
+		const char *sp=qp_sp_map[val];
+		if(!sp[1])
+		{
+			continue;
+		}
+		out[deep*2]=sp[0];
+		out[deep*2+1]=sp[1];
+		const py_qp_t *qp=py2_get_item(val);
+        stack[deep+1].py_pos = f->py_pos + qp->len;
+		f=&stack[++deep];
+
+		if(py[f->py_pos]=='\'')
+			f->py_pos++;
+
+		
+		if(f->zi_ptr == zi+zi_len)
+		{
+			if (py[f->py_pos]==0)
+			{
+				out[deep*2]=0;
+				return deep*2;
+			}
+			f=&stack[--deep];
+			continue;
+		}
+		if(!f->code)
+		{
+			uint32_t hz=l_gb_to_char(f->zi_ptr);
+			f->code=first_code(hz,arg);
+		}
+		char next=py[f->py_pos];
+		if(!(f->code&(1<<(next-'a'))))
+		{
+			f=&stack[--deep];
+			continue;
+		}
+		
+		if(f->py_pos>=py_len)
+		{
+			out[deep*2]=0;
+			return deep*2;
+		}
+		
+		f->cand_cnt = py_tree_get(&py2_index,py+f->py_pos,f->cand);
+		f->cand_idx = f->cand_cnt-1;
+	}
+
+	return -1;
+}
+
+
+int py2_split_string(const char *py, int py_len,const char *zi,int zi_len,uint8_t *split,uint32_t (*first_code)(uint32_t,void*),void *arg)
+{
+	typedef struct {
+        const char * zi_ptr;
+       	int py_pos;
+		int cand_cnt;
+		int cand_idx;
+		int  cand[6];
+		uint32_t code;
+    } frame_t;
+
+    frame_t stack[64];
+    int deep = 0;
+	frame_t *f = &stack[deep];
+    f->zi_ptr   = zi;
+    f->py_pos   = 0;
+	f->cand_cnt = py_tree_get(&py2_index,py,f->cand);
+	f->cand_idx = f->cand_cnt-1;
+
+	while(deep>=0)
+	{
+		if(f->cand_idx==-1)
+		{
+			f=&stack[--deep];
+			continue;
+		}
+		int val=f->cand[f->cand_idx--];
+		const char *sp=qp_sp_map[val];
+		if(!sp[1])
+		{
+			continue;
+		}
+		split[deep]=f->py_pos;
+		const py_qp_t *qp=py2_get_item(val);
+		stack[deep+1].zi_ptr=l_gb_next_char(f->zi_ptr);
+        stack[deep+1].py_pos = f->py_pos + qp->len;
+		f=&stack[++deep];
+
+		if(f->py_pos >= py_len)
+		{
+			return deep;
+		}
+		if(!f->code)
+		{
+			uint32_t hz=l_gb_to_char(f->zi_ptr);
+			f->code=first_code(hz,arg);
+		}
+		char next=py[f->py_pos];
+		if(!(f->code&(1<<(next-'a'))))
+		{
+			f=&stack[--deep];
+			continue;
+		}
+		
+		f->cand_cnt = py_tree_get(&py2_index,py+f->py_pos,f->cand);
+		f->cand_idx = f->cand_cnt-1;
+	}
+
+    return -1;
+}
+
+int py2_split_of_string(const char *code,int code_len,uint8_t *split)
+{
+	bool gap=true;
+	int pos=0;
+	int len=0;
+	for(int i=0;i<code_len;i++)
+	{
+		if(code[i]=='\'')
+		{
+			gap=true;
+		}
+		else
+		{
+			if(gap)
+			{
+				gap=false;
+				split[len++]=pos;
+			}
+			pos++;
+		}
+	}
+	return len;
+}
+
+bool py2_split_includes(const uint8_t *all,int all_len,const uint8_t *part,int part_len)
+{
+	int j=0;
+	for(int i=0;i<part_len;i++)
+	{
+		uint8_t v=part[i];
+		for(;j<all_len;j++)
+		{
+			if(all[j]==v)
+				break;
+			if(all[j]>v)
+				return false;
+		}
+		if(j==all_len)
+			return false;
+	}
+	return true;
+}
+
 #endif // ENABLE_PY2
 
 #if !ENABLE_PY2

@@ -66,6 +66,7 @@ function bihua(){
 	include("../rules.txt");
 	env("CFLAGS+=-I$(TOPDIR)/include $(LLIB_CFLAGS) -Wall -DTOOLS_BIHUA");
 	env("LDFLAGS+=-Wl,-rpath='$ORIGIN'");
+	env("CFLAGS-=-O2");env("CFLAGS+=-O0");
 	cr(SRCS,'l64-gtk3/bihua','$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(LLIB_LDADD)');
 }
 

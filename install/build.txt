@@ -33,7 +33,6 @@ function copy_build(build){
 	cp('../llib/$(BUILD)/libl.so','yong/$(BUILD)');
 	cp('../im/$(BUILD)-gtk3/yong','yong/$(BUILD)/yong-gtk3');
 	cp('../config/$(BUILD)-gtk3/yong-config','yong/$(BUILD)/yong-config-gtk3');
-	cp('../config/$(BUILD)-gtk4/yong-config','yong/$(BUILD)/yong-config-gtk4');
 	cp('../vim/$(BUILD)/yong-vim','yong/$(BUILD)');
 	cp('../im/conio/$(BUILD)/yong-con','yong/$(BUILD)');
 	cp('../mb/$(BUILD)/libmb.so','yong/$(BUILD)');
@@ -41,21 +40,25 @@ function copy_build(build){
 	cp('../cloud/$(BUILD)/libcloud.so','yong/$(BUILD)');
 	cp('../im/gtk-im/$(BUILD)-gtk2/im-yong.so','yong/$(BUILD)/gtk-im/im-yong-gtk2.so');
 	cp('../im/gtk-im/$(BUILD)-gtk3/im-yong.so','yong/$(BUILD)/gtk-im/im-yong-gtk3.so');
-	cp('../im/gtk4-im/$(BUILD)-gtk4/libimyong.so','yong/$(BUILD)/gtk-im/libimyong-gtk4.so');
-
+	
 	cp('../linim/$(BUILD)/yong','yong/$(BUILD)/yong-wui');
 	cp('../linim/wui/$(BUILD)/libwui-gtk3-x11.so','yong/$(BUILD)');
 	cp('../linim/wui/$(BUILD)/libwui-wayland.so','yong/$(BUILD)');
+	exec("strip yong/$(BUILD)/yong-wui");
+
+	if(exists("yong/$(BUILD)/yong-config")) {
+		cp('../config/$(BUILD)-gtk4/yong-config','yong/$(BUILD)/yong-config-gtk4');
+		cp('../im/gtk4-im/$(BUILD)-gtk4/libimyong.so','yong/$(BUILD)/gtk-im/libimyong-gtk4.so');
+		exec("strip yong/$(BUILD)/yong-config-gtk4");
+	}
 	
 	exec("strip yong/$(BUILD)/gtk-im/*.so");
 	exec("strip yong/$(BUILD)/*.so");
 	exec("strip yong/$(BUILD)/yong-gtk3");
 	exec("strip yong/$(BUILD)/yong-config-gtk3");
-	exec("strip yong/$(BUILD)/yong-config-gtk4");
 	exec("strip yong/$(BUILD)/yong-vim");
-	exec("strip yong/$(BUILD)/yong-wui");
-
-	if(!_exists("yong/$(BUILD)/yong-config")){
+		
+	if(!exists("yong/$(BUILD)/yong-config")){
 		cd("yong/$(BUILD)");
 		exec("ln -sf yong-config-gtk3 yong-config");
 		cd("../..");

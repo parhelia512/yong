@@ -10,13 +10,8 @@ enum{
 	DISC_WITH_BORDER,
 	SHADOW_OF_RECT,
 	SHADOW_OF_RRECT,
+	SHADOW_OF_LINE,
 };
-
-#define SHADOW_LINEAR		0		// 线性衰减
-#define SHADOW_SQUARE		1		// 平方衰减
-#define SHADOW_SMOOTHSTEP	2		// Smoothstep 平滑曲线
-
-#define USE_SHADOW			1
 
 typedef struct{
 	struct llru_item *next;
@@ -25,14 +20,13 @@ typedef struct{
 	uint8_t buf[];
 }sdf_cache_t;
 
-static inline uint64_t get_key(uint8_t shape,uint8_t p0,uint16_t p1,float p2)
-{
-	union{
-		float f;
-		uint32_t i;
-	}u={.f=p2};
-	return (((uint64_t)shape)<<56)|(((uint64_t)p0)<<48)|(((uint64_t)p1)<<32)|u.i;
-}
+typedef union{
+	uint64_t u64;
+	uint32_t u32[2];
+	float f32[2];
+	uint16_t u16[4];
+	uint8_t u8[8];
+}sdf_key_t;
 
 static LLRU *lru;
 [[gnu::constructor]]
@@ -45,6 +39,72 @@ static sdf_cache_t *sdf_cache_new(int size)
 {
 	return l_alloc0(sizeof(sdf_cache_t)+size);
 }
+
+/**
+ * 计算三次贝塞尔曲线上给定 x 坐标对应的 y 值 (精度 0.001, 使用 float)
+ * 假设起点 P0 = (0, 1), 终点 P3 = (1, 0)
+ * 
+ * @param x  目标 x 坐标 (0~1)
+ * @param x1 控制点 P1 的 x 坐标
+ * @param y1 控制点 P1 的 y 坐标
+ * @param x2 控制点 P2 的 x 坐标
+ * @param y2 控制点 P2 的 y 坐标
+ * @return   对应的 y 坐标
+ */
+float cubic_bezier_y(float x, float x1, float y1, float x2, float y2)
+{
+	// 边界情况快速返回
+	if (x <= 0.0f) return 1.0f;
+	if (x >= 1.0f) return 0.0f;
+
+	float t = x; // 使用 x 作为 t 的初始猜测值
+	float lower = 0.0f;
+	float upper = 1.0f;
+
+	// 精度要求 0.001，迭代 4 次即可满足
+	for (int i = 0; i < 4; ++i)
+	{
+	float one_minus_t = 1.0f - t;
+
+	// 计算当前的 X(t)
+	float x_at_t = 3.0f * one_minus_t * one_minus_t * t * x1 +
+		       3.0f * one_minus_t * t * t * x2 +
+		       t * t * t;
+
+	// 计算当前的导数 X'(t)
+	float dx_at_t = 3.0f * one_minus_t * one_minus_t * x1 +
+			6.0f * one_minus_t * t * (x2 - x1) +
+			3.0f * t * t * (1.0f - x2);
+
+	float x_diff = x_at_t - x;
+
+	// 如果误差已经小于 0.001，提前退出
+	if (fabsf(x_diff) < 1e-3f)
+	    break;
+
+	// 更新二分法的上下界
+	if (x_diff > 0.0f)
+	    upper = t;
+	else
+	    lower = t;
+
+	// 牛顿迭代法: t_next = t - f(t)/f'(t)
+	// 如果导数太小，或者牛顿迭代结果越界，退化为二分法
+	if (fabsf(dx_at_t) < 1e-6f || t - x_diff / dx_at_t < lower || t - x_diff / dx_at_t > upper)
+	    t = (lower + upper) * 0.5f;
+	else
+	    t = t - x_diff / dx_at_t;
+	}
+
+	// 使用求得的 t 计算对应的 Y(t)
+	float one_minus_t = 1.0f - t;
+	float y = one_minus_t * one_minus_t * one_minus_t + 
+	      3.0f * one_minus_t * one_minus_t * t * y1 + 
+	      3.0f * one_minus_t * t * t * y2;
+
+	return y;
+}
+
 
 static void sdf_gen_circle(uint8_t *restrict buf, int r, float line_width)
 {
@@ -133,27 +193,24 @@ static void sdf_gen_disk2(uint8_t *restrict buf, int r,float line_width)
     }
 }
 
-static inline uint8_t calc_shadow_alpha(float dist,float fr)
+static inline uint8_t calc_shadow_alpha(float dist,float fr,L_SDF_SHADOW *shadow)
 {
-#if USE_SHADOW==SHADOW_LINEAR
-	float t=fminf(fr,dist);
-	float alpha=1.0f-t/fr;
-#endif
-
-#if USE_SHADOW==SHADOW_SQUARE
-	float t = fminf(dist / fr, 1.0f);
-	float alpha = 1.0f - t;
-	alpha = alpha * alpha;
-#endif
-
-#if USE_SHADOW==SHADOW_SMOOTHSTEP
-	float t=fminf(dist/fr,1.0f);
-	float alpha = 1.0f - (t * t * (3.0f - 2.0f * t));
-#endif
+	float t=fminf(fr,dist)/fr;
+	float alpha=cubic_bezier_y(t,shadow->x1,shadow->y1,shadow->x2,shadow->y2);
 	return (uint8_t)(alpha * 255.0f + 0.5f);
 }
 
-static void sdf_gen_shadow_of_rect(uint8_t *restrict buf, int r)
+static void sdf_gen_shadow_of_line(uint8_t *restrict buf,int r,L_SDF_SHADOW *shadow)
+{
+	const float fr=(float)r;
+	for(int i=0;i<r;i++)
+	{
+		float dist=i+0.5f;
+		buf[i]=calc_shadow_alpha(dist,fr,shadow);
+	}
+}
+
+static void sdf_gen_shadow_of_rect(uint8_t *restrict buf, int r,L_SDF_SHADOW *shadow)
 {
 	const float fr = (float)r;
 	for (int y = 0; y < r; y++)
@@ -165,17 +222,17 @@ static void sdf_gen_shadow_of_rect(uint8_t *restrict buf, int r)
 			float px = x + 0.5f;
 
 			float dist = sqrtf(px*px + py2);
-			uint8_t alpha = calc_shadow_alpha(dist,fr);
+			uint8_t alpha = calc_shadow_alpha(dist,fr,shadow);
 			buf[y * r + x]=alpha;
 		}
 	}
 }
 
-static void sdf_gen_shadow_of_rrect(uint8_t *restrict buf, int r0,int r1)
+static void sdf_gen_shadow_of_rrect(uint8_t *restrict buf, int r0,int r1,L_SDF_SHADOW *shadow)
 {
-	int r01=r0+r1;
+	int r01 = r0 + r1;
 	const float fr0 = (float)r0;
-	const float fr1= (float)r1;
+	const float fr1 = (float)r1;
 	for (int y = 0; y < r01; y++)
 	{
 		float py = y + 0.5f;
@@ -187,43 +244,68 @@ static void sdf_gen_shadow_of_rrect(uint8_t *restrict buf, int r0,int r1)
 			if(dist<=0)
 				continue;
 			dist=fminf(dist,fr0);
-			uint8_t alpha=calc_shadow_alpha(dist,fr0);
+			uint8_t alpha=calc_shadow_alpha(dist,fr0,shadow);
 			buf[y * r01 + x]=alpha;
 		}
 	}
 }
 
-static const uint8_t *sdf_cache_get(uint8_t shape,uint8_t p0,uint16_t p1,float p2)
+static const uint8_t *sdf_cache_get(L_SDF_CONTEXT *ctx,sdf_key_t key)
 {
-	uint64_t key=get_key(shape,p0,p1,p2);
-	sdf_cache_t *item=(sdf_cache_t*)l_lru_get(lru,key);
+	sdf_cache_t *item=(sdf_cache_t*)l_lru_get(lru,key.u64);
 	if(item)
 		return item->buf;
+	uint8_t shape=key.u8[0];
 	switch(shape){
 		case CIRCLE:
-			item=sdf_cache_new(p0*p0);
-			sdf_gen_circle(item->buf,p0,p2);
+		{
+			uint8_t r=key.u8[1];
+			uint32_t line_width=key.f32[1];
+			item=sdf_cache_new(r*r);
+			sdf_gen_circle(item->buf,r,line_width);
 			break;
+		}
 		case DISC:
-			item=sdf_cache_new(p0*p0);
-			sdf_gen_disk(item->buf,p0);
+		{
+			uint8_t r=key.u8[1];
+			item=sdf_cache_new(r*r);
+			sdf_gen_disk(item->buf,r);
 			break;
+		}
 		case DISC_WITH_BORDER:
-			item=sdf_cache_new(p0*p0*2);
-			sdf_gen_disk2(item->buf,p0,p2);
+		{
+			uint8_t r=key.u8[1];
+			float line_width=key.f32[1];
+			item=sdf_cache_new(r*r*2);
+			sdf_gen_disk2(item->buf,r,line_width);
 			break;
+		}
 		case SHADOW_OF_RECT:
-			item=sdf_cache_new(p0*p0);
-			sdf_gen_shadow_of_rect(item->buf,p0);
+		{
+			uint8_t r=key.u8[1];
+			item=sdf_cache_new(r*r);
+			sdf_gen_shadow_of_rect(item->buf,r,&ctx->shadow);
 			break;
+		}
 		case SHADOW_OF_RRECT:
-			item=sdf_cache_new((p0+p1)*(p0+p1));
-			sdf_gen_shadow_of_rrect(item->buf,p0,p1);
+		{
+			uint8_t r0=key.u8[1];
+			uint8_t r1=key.u8[2];
+			item=sdf_cache_new((r0+r1)*(r0+r1));
+			sdf_gen_shadow_of_rrect(item->buf,r0,r1,&ctx->shadow);
 			break;
+		}
+		case SHADOW_OF_LINE:
+		{
+			uint8_t r=key.u8[1];
+			item=sdf_cache_new(r);
+			sdf_gen_shadow_of_line(item->buf,r,&ctx->shadow);
+			break;
+		}
 		default:
 			return NULL;
 	}
-	item->key=key;
+	item->key=key.u64;
 	l_lru_add(lru,(LLRU_ITEM*)item);
 	return item->buf;
 }
@@ -241,7 +323,7 @@ int l_sdf_moveto(L_SDF_CONTEXT *ctx,int x,int y)
 
 static void l_sdf_vline1(L_SDF_CONTEXT *ctx,int x,int y0,int y1,uint32_t c)
 {
-	int stride=ctx->width;
+	int stride=ctx->stride;
 	uint32_t *p=ctx->pixels+y0*stride+x;
 	uint32_t a=L_SDF_ALPHA(c);
 	uint32_t ia=255-a;
@@ -335,14 +417,14 @@ static int l_sdf_rect_r0(L_SDF_CONTEXT *ctx,int w,int h)
 	if(a!=0)
 	{
 		uint32_t ia=255-a;
-		uint32_t *p=ctx->pixels+y*ctx->width+x;
+		uint32_t *p=ctx->pixels+y*ctx->stride+x;
 		for(int j=0;j<h;j++)
 		{
 			for(int i=0;i<w;i++)
 			{
 				p[i]=c+l_sdf_byte_mul(p[i],ia);
 			}
-			p+=ctx->width;
+			p+=ctx->stride;
 		}
 	}
 	float line_width=ctx->line_width;
@@ -395,27 +477,28 @@ int l_sdf_rect(L_SDF_CONTEXT *ctx,int w,int h,int r)
 		uint32_t ialpha=255-fa;
 		for(int i=0;i<r;i++)
 		{
-			int b=ctx->width*(y+i)+(x+r);
+			int b=ctx->stride*(y+i)+(x+r);
 			int e=b+w-2*r-1;
 			for(int j=b;j<=e;j++)
 				pixels[j]=fillColor+l_sdf_byte_mul(pixels[j],ialpha);
 		}
 		for(int i=r;i<h-r;i++)
 		{
-			int b=ctx->width*(y+i)+x;
+			int b=ctx->stride*(y+i)+x;
 			int e=b+w-1;
 			for(int j=b;j<=e;j++)
 				pixels[j]=fillColor+l_sdf_byte_mul(pixels[j],ialpha);
 		}
 		for(int i=h-r;i<h;i++){
-			int b=ctx->width*(y+i)+x+r;
+			int b=ctx->stride*(y+i)+x+r;
 			int e=b+w-2*r-1;
 			for(int j=b;j<=e;j++)
 				pixels[j]=fillColor+l_sdf_byte_mul(pixels[j],ialpha);
 		}
 		if(line_width==0.0f)
 		{
-			const uint8_t *corner=sdf_cache_get(DISC,r,0,0.0f);
+			sdf_key_t key={.u8={DISC,(uint8_t)r}};
+			const uint8_t *corner=sdf_cache_get(ctx,key);
 			for(int i=0;i<r;i++)
 			{
 				for(int j=0;j<r;j++)
@@ -424,19 +507,19 @@ int l_sdf_rect(L_SDF_CONTEXT *ctx,int w,int h,int r)
 					uint32_t ialpha=255-L_SDF_ALPHA(color);
 					int mx=w-r+j;
 					int my=h-r+i;
-					int p=ctx->width*(y+my)+(x+mx);
+					int p=ctx->stride*(y+my)+(x+mx);
 					uint32_t color2=color+l_sdf_byte_mul(pixels[p],ialpha);
 					pixels[p]=color2;
 					my=h-my-1;
-					p=ctx->width*(y+my)+(x+mx);
+					p=ctx->stride*(y+my)+(x+mx);
 					color2=color+l_sdf_byte_mul(pixels[p],ialpha);
 					pixels[p]=color2;
 					mx=w-mx-1;
-					p=ctx->width*(y+my)+(x+mx);
+					p=ctx->stride*(y+my)+(x+mx);
 					color2=color+l_sdf_byte_mul(pixels[p],ialpha);
 					pixels[p]=color2;
 					my=h-my-1;
-					p=ctx->width*(y+my)+(x+mx);
+					p=ctx->stride*(y+my)+(x+mx);
 					color2=color+l_sdf_byte_mul(pixels[p],ialpha);
 					pixels[p]=color2;
 				}
@@ -444,7 +527,9 @@ int l_sdf_rect(L_SDF_CONTEXT *ctx,int w,int h,int r)
 		}
 		else
 		{
-			const uint8_t *corner=sdf_cache_get(DISC_WITH_BORDER,r,0,line_width);
+			sdf_key_t key={.u8={DISC_WITH_BORDER,(uint8_t)r}};
+			key.f32[1]=line_width;
+			const uint8_t *corner=sdf_cache_get(ctx,key);
 			for(int i=0;i<r;i++)
 			{
 				for(int j=0;j<r;j++)
@@ -461,19 +546,19 @@ int l_sdf_rect(L_SDF_CONTEXT *ctx,int w,int h,int r)
 					uint32_t ialpha=255-A1;
 					int mx=w-r+j;
 					int my=h-r+i;
-					int p=ctx->width*(y+my)+(x+mx);
+					int p=ctx->stride*(y+my)+(x+mx);
 					uint32_t color2=color+l_sdf_byte_mul(pixels[p],ialpha);
 					pixels[p]=color2;
 					my=h-my-1;
-					p=ctx->width*(y+my)+(x+mx);
+					p=ctx->stride*(y+my)+(x+mx);
 					color2=color+l_sdf_byte_mul(pixels[p],ialpha);
 					pixels[p]=color2;
 					mx=w-mx-1;
-					p=ctx->width*(y+my)+(x+mx);
+					p=ctx->stride*(y+my)+(x+mx);
 					color2=color+l_sdf_byte_mul(pixels[p],ialpha);
 					pixels[p]=color2;
 					my=h-my-1;
-					p=ctx->width*(y+my)+(x+mx);
+					p=ctx->stride*(y+my)+(x+mx);
 					color2=color+l_sdf_byte_mul(pixels[p],ialpha);
 					pixels[p]=color2;
 				}
@@ -499,11 +584,27 @@ int l_sdf_rect(L_SDF_CONTEXT *ctx,int w,int h,int r)
 	return 0;
 }
 
+static inline sdf_key_t sdf_shadow_key(L_SDF_SHADOW *s,int shape,int len,int r)
+{
+	sdf_key_t key={
+		.u8={
+			shape,
+				len,
+			r,
+			0,
+			(uint8_t)(s->x1*100.0f+0.5f),
+			(uint8_t)(s->y1*100.0f+0.5f),
+			(uint8_t)(s->x2*100.0f+0.5f),
+			(uint8_t)(s->y2*100.0f+0.5f),
+		}
+	};
+	return key;
+}
+
 int l_sdf_rect_shadow(L_SDF_CONTEXT *ctx,int w,int h,int r0,int r1)
 {
 	if(r0<=0 || r1<0 || r0+r1>255)
 		return -1;
-	float fr0=r0;
 	int r01=r0+r1;
 	int x=ctx->x;
 	int y=ctx->y;
@@ -521,15 +622,15 @@ int l_sdf_rect_shadow(L_SDF_CONTEXT *ctx,int w,int h,int r0,int r1)
 	}
 	uint32_t color=l_sdf_premultiply(ctx->fg);
 	uint32_t *pixels=ctx->pixels;
+	const uint8_t *corner=sdf_cache_get(ctx,sdf_shadow_key(&ctx->shadow,SHADOW_OF_LINE,r0,0));
 	// top
 	for(int j=0;j<r0;j++)
 	{
-		float dist=fr0-j-0.5f;
-		uint32_t alpha=calc_shadow_alpha(dist,fr0);
+		uint32_t alpha=corner[r0-j-1];
 		uint32_t pcolor=l_sdf_byte_mul(color,alpha);
 		alpha=L_SDF_ALPHA(pcolor);
 		uint32_t ialpha=255-alpha;
-		uint32_t *p=pixels+(y-r0+j)*ctx->width+x+r1;
+		uint32_t *p=pixels+(y-r0+j)*ctx->stride+x+r1;
 		for(int i=0;i<w-2*r1;i++)
 		{
 			*p=pcolor+l_sdf_byte_mul(*p,ialpha);
@@ -539,12 +640,11 @@ int l_sdf_rect_shadow(L_SDF_CONTEXT *ctx,int w,int h,int r0,int r1)
 	// bottom
 	for(int j=0;j<r0;j++)
 	{
-		float dist=j+0.5f;
-		uint32_t alpha=calc_shadow_alpha(dist,fr0);
+		uint32_t alpha=corner[j];
 		uint32_t pcolor=l_sdf_byte_mul(color,alpha);
 		alpha=L_SDF_ALPHA(pcolor);
 		uint32_t ialpha=255-alpha;
-		uint32_t *p=pixels+(y+h+j)*ctx->width+x+r1;
+		uint32_t *p=pixels+(y+h+j)*ctx->stride+x+r1;
 		for(int i=0;i<w-2*r1;i++)
 		{
 			*p=pcolor+l_sdf_byte_mul(*p,ialpha);
@@ -554,11 +654,10 @@ int l_sdf_rect_shadow(L_SDF_CONTEXT *ctx,int w,int h,int r0,int r1)
 	// left
 	for(int j=0;j<h-2*r1;j++)
 	{
-		uint32_t *p=pixels+(y+r1+j)*ctx->width+x-r0;
+		uint32_t *p=pixels+(y+r1+j)*ctx->stride+x-r0;
 		for(int i=0;i<r0;i++)
 		{
-			float dist=fr0-i-0.5f;
-			uint32_t alpha=calc_shadow_alpha(dist,fr0);
+			uint32_t alpha=corner[r0-i-1];
 			uint32_t pcolor=l_sdf_byte_mul(color,alpha);
 			alpha=L_SDF_ALPHA(pcolor);
 			uint32_t ialpha=255-alpha;
@@ -569,12 +668,10 @@ int l_sdf_rect_shadow(L_SDF_CONTEXT *ctx,int w,int h,int r0,int r1)
 	// right
 	for(int j=0;j<h-2*r1;j++)
 	{
-		uint32_t *p=pixels+(y+r1+j)*ctx->width+x+w;
+		uint32_t *p=pixels+(y+r1+j)*ctx->stride+x+w;
 		for(int i=0;i<r0;i++)
 		{
-			// distance=i+0.5 alpha=255*(r0-distance)/r0=255*(r0-i-0.5)/r0
-			float dist=i+0.5f;
-			uint32_t alpha=calc_shadow_alpha(dist,fr0);
+			uint32_t alpha=corner[i];
 			uint32_t pcolor=l_sdf_byte_mul(color,alpha);
 			alpha=L_SDF_ALPHA(pcolor);
 			uint32_t ialpha=255-alpha;
@@ -583,11 +680,14 @@ int l_sdf_rect_shadow(L_SDF_CONTEXT *ctx,int w,int h,int r0,int r1)
 		}
 	}
 
-	const uint8_t *corner;
 	if(!r1)
-		corner=sdf_cache_get(SHADOW_OF_RECT,r0,0,0);
+	{
+		corner=sdf_cache_get(ctx,sdf_shadow_key(&ctx->shadow,SHADOW_OF_RECT,r0,r1));
+	}
 	else
-		corner=sdf_cache_get(SHADOW_OF_RRECT,r0,r1,0);
+	{
+		corner=sdf_cache_get(ctx,sdf_shadow_key(&ctx->shadow,SHADOW_OF_RRECT,r0,r1));
+	}
 	for(int i=0;i<r01;i++)
 	{
 		for(int j=0;j<r01;j++)
@@ -597,22 +697,38 @@ int l_sdf_rect_shadow(L_SDF_CONTEXT *ctx,int w,int h,int r0,int r1)
 			// right bottom
 			int mx=w-r1+j;
 			int my=h-r1+i;
-			int p=ctx->width*(y+my)+(x+mx);
+			int p=ctx->stride*(y+my)+(x+mx);
 			pixels[p]=pcolor+l_sdf_byte_mul(pixels[p],ialpha);
 			// left bottom
 			my=h-my-1;
-			p=ctx->width*(y+my)+(x+mx);
+			p=ctx->stride*(y+my)+(x+mx);
 			pixels[p]=pcolor+l_sdf_byte_mul(pixels[p],ialpha);;
 			// left top
 			mx=w-mx-1;
-			p=ctx->width*(y+my)+(x+mx);
+			p=ctx->stride*(y+my)+(x+mx);
 			pixels[p]=pcolor+l_sdf_byte_mul(pixels[p],ialpha);;
 			// right top
 			my=h-my-1;
-			p=ctx->width*(y+my)+(x+mx);
+			p=ctx->stride*(y+my)+(x+mx);
 			pixels[p]=pcolor+l_sdf_byte_mul(pixels[p],ialpha);;
 		}
 	}
 
 	return 0;
 }
+
+void l_sdf_context_init(L_SDF_CONTEXT *ctx,void *pixels,int w,int h)
+{
+	ctx->pixels=pixels;
+	ctx->width=w;
+	ctx->height=h;
+	ctx->stride=w;
+	ctx->line_width=1.0f;
+	ctx->x=ctx->y=0;
+	ctx->bg=ctx->fg=0;
+	ctx->shadow.x1=0.0f;
+	ctx->shadow.y1=1.0f;
+	ctx->shadow.x2=0.5f;
+	ctx->shadow.y2=0.0f;
+}
+

@@ -30,15 +30,14 @@ static bool tool_switch_im(int i)
 			i=im.IndexPrev;
 	}
 	YongSwitchIM(i);
-	char *name=y_im_get_im_name(im.Index);
-	if(name!=NULL)
+	if(tip_main)
 	{
-		if(tip_main)
+		char *name=y_im_get_im_name(im.Index);
+		if(name)
 		{
-			char *name=y_im_get_im_name(im.Index);
 			y_ui_show_tip(YT("ÇÐ»»µ½£º%s"),name);
+			l_free(name);
 		}
-		l_free(name);
 	}
 	return true;
 }

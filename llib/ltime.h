@@ -3,19 +3,7 @@
 
 #include "ltypes.h"
 
-#ifdef _WIN32
-#include <windows.h>
-static inline uint64_t l_ticks(void)
-{
-#ifdef _WIN64
-	return GetTickCount64();
-#else
-	return GetTickCount();
-#endif
-}
-#else
 uint64_t l_ticks(void);
-#endif
 
 #if L_WORD_SIZE==64 || !defined(_WIN32)
 #define l_time() (int64_t)time(NULL)

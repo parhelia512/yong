@@ -737,8 +737,7 @@ int ui_main_update(UI_MAIN *param)
 	MainTheme.line_width=param->line_width;
 	MainTheme.move_style=param->move_style;
 	MainTheme.radius=param->radius;
-	MainTheme.shadow_size=0;	//param->shadow_size;
-	MainTheme.shadow_color=param->shadow_color;
+	MainTheme.shadow.len=0;
 	if(param->bg[0]=='#')
 	{
 		MainTheme.bg_color=ui_color_parse(param->bg);
@@ -749,7 +748,6 @@ int ui_main_update(UI_MAIN *param)
 			MainWin_W=(int)(MainWin_W*ui_scale);
 			MainWin_H=(int)(MainWin_H*ui_scale);
 			MainTheme.radius=(int)round(param->radius*ui_scale);
-			MainTheme.shadow_size=(int)round(param->shadow_size*ui_scale);
 		}
 		gtk_widget_shape_combine_region(MainWin,NULL);
 		gtk_widget_input_shape_combine_region(MainWin,NULL); 
@@ -1179,8 +1177,7 @@ int ui_input_update(UI_INPUT *param)
 	InputTheme.radius[0]=param->radius[0];
 	InputTheme.radius[1]=param->radius[1];
 
-	InputTheme.shadow_size=param->shadow_size;
-	InputTheme.shadow_color=param->shadow_color;
+	InputTheme.shadow.len=0;
 
 	if(InputTheme.scale==1 && ui_scale!=1)
 	{
@@ -1245,8 +1242,6 @@ int ui_input_update(UI_INPUT *param)
 
 			InputTheme.radius[0]=(int)round(ui_scale*InputTheme.radius[0]);
 			InputTheme.radius[1]=(int)round(ui_scale*InputTheme.radius[1]);
-
-			InputTheme.shadow_size=(int)round(ui_scale*InputTheme.shadow_size);
 		}
 		if(InputTheme.WorkBottom==0)
 		{
@@ -1829,7 +1824,7 @@ int YongDrawInput(void)
 		InputTheme.RealHeight=TempHeight;
 		gtk_window_resize(GTK_WINDOW(InputWin),InputTheme.RealWidth,InputTheme.RealHeight);
 	}
-	if(PageWidth && InputTheme.line==2)
+	// if(PageWidth && InputTheme.line==2)
 	{
 			im.PagePosX=InputTheme.RealWidth-InputTheme.WorkRight-
 				(InputTheme.CodeX-InputTheme.WorkLeft)-PageWidth;

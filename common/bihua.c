@@ -13,7 +13,6 @@
 
 static const char *bihua_key=Y_BIHUA_KEY;
 
-#ifndef TOOLS_BIHUA
 static const Y_BIHUA_INFO y_bihua_info[32]={
 	{"山","252"},	//a
 	{0,0},			//b
@@ -47,7 +46,6 @@ static const Y_BIHUA_INFO y_bihua_info[32]={
 	{0,0},			//.
 	{0,0},			//
 };
-#endif
 static const Y_BIHUA_INFO *bihua_info;
 
 #define BIHUA_MAX	63
@@ -58,9 +56,9 @@ static const Y_BIHUA_INFO *bihua_info;
 #define TRUNC_SIZE	sizeof(struct bihua_trunc)
 
 struct bihua_trunc{
-	uint16_t count;
-	uint16_t group;
-	uint32_t offset[GROUP_MAX];
+	uint16_t count;				// 这一分区中总共有多少字
+	uint16_t group;				// 每个分组有多少个字
+	uint32_t offset[GROUP_MAX];	// 每一组的文件偏移
 };
 
 struct bihua_result{
@@ -73,7 +71,8 @@ struct bihua_result{
 static uint8_t bihua_version;
 static struct bihua_trunc *trunc;
 static char *base;
-static struct bihua_result res;	
+static struct bihua_result res;
+static int base_size;
 
 static void y_bihua_free(void)
 {
@@ -110,6 +109,7 @@ static int y_bihua_load(const char *fn)
 		return -1;
 	}
 	trunc->group&=0x3fff;
+	base_size=data_size-(base-(char*)trunc);
 
 	return 0;
 }
@@ -187,36 +187,34 @@ static inline uint32_t bihua_next(uint32_t offset)
 static inline uint32_t group_size(struct bihua_trunc *t,int group)
 {
 	if(group==GROUP_MAX-1)
-		return t->count-(t->group*GROUP_MAX-1);
+		return t->count-(t->group*(GROUP_MAX-1));
 	return t->group;
 }
 
 static int y_bihua_set(const char *s)
 {
-	struct bihua_trunc *t;
 	int ret;
 	int group[2];
 	uint32_t offset[2];
-	int count;
 	char temp[BIHUA_MAX+1];
 
 	s=bihua_escape(s,temp);
 	int len=strlen(s);
 
-	t=trunc+s[0]-'1';
-	if(!s[1])
+	struct bihua_trunc *t=trunc+s[0]-'1';
+	if(!s[1])			// 单笔画
 	{
 		res.count=t->count;
 		res.offset=t->offset[0];
 		return res.count;
 	}
+	// 获得总共有多少个分组
 	int group_max=t->count/t->group+((t->count%t->group)?1:0);
 	group[0]=0;
 	group[1]=group_max;
 	for(int i=0;i<group_max;i++)
 	{
 		ret=bihua_test(base+t->offset[i],s,len);
-		// printf("test %d %d count %d\n",i,ret,t->count);
 		if(ret<0)
 		{
 			group[0]=i;
@@ -234,14 +232,21 @@ static int y_bihua_set(const char *s)
 		res.offset=0;
 		return res.count;
 	}
-	count=0;
+	int count=0;
+	// 按分组数量生成大概的数量
 	for(int i=group[0];i<group[1]-1;i++)
 	{
 		count+=t->group;
 	}
+	// 去除第一组中不符合要求的
 	offset[0]=t->offset[group[0]];
 	for(int i=0;i<t->group;i++)
 	{
+		if(offset[0]>=base_size)
+		{
+			if(count>0) count--;
+			continue;
+		}
 		ret=bihua_test(base+offset[0],s,len);
 		if(ret==0)
 			break;
@@ -251,10 +256,13 @@ static int y_bihua_set(const char *s)
 			count--;
 		offset[0]=bihua_next(offset[0]);
 	}
+	// 加上最后一组中符合要求的
 	offset[1]=(group[1]-1>group[0])?t->offset[group[1]-1]:offset[0];
 	int size=group_size(t,group[1]-1);
 	for(int i=0;i<size;i++)
 	{
+		if(offset[0]>=base_size)
+			break;
 		ret=bihua_test(base+offset[1],s,len);
 		if(ret!=0)
 			break;
@@ -268,10 +276,9 @@ static int y_bihua_set(const char *s)
 
 static uint32_t *y_bihua_get(int at,int num)
 {
-	uint32_t offset;
 	if(!res.count || num>10 || num==0)
 		return NULL;
-	offset=res.offset;
+	uint32_t offset=res.offset;
 	for(int i=0;i<at;i++)
 	{
 		offset=bihua_next(offset);

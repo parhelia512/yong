@@ -7,19 +7,21 @@
 #include "wui.h"
 #endif
 
-static double get_scale(void *win,void *dc)
-{
-	return 1.0;
-}
-
 void ui_draw_begin(DRAW_CONTEXT1 *ctx,void *win,void *dc)
 {
 	ctx->x=ctx->y=0;
 	ctx->dc=dc;
 	ctx->win=win;
-	ctx->scale=get_scale(win,dc);
+	cairo_get_matrix(dc,&ctx->matrix);
 	cairo_set_antialias(dc,CAIRO_ANTIALIAS_NONE);
 	ctx->tx=ctx->ty=0;
+	ctx->scale=1.0;
+
+	cairo_surface_t *target=cairo_get_target(dc);
+	l_sdf_context_init(&ctx->sdf,
+			cairo_image_surface_get_data(target),
+			cairo_image_surface_get_width(target),
+			cairo_image_surface_get_height(target));
 }
 
 void ui_draw_end(DRAW_CONTEXT1 *ctx)
@@ -42,42 +44,29 @@ static void ui_set_source_color(DRAW_CONTEXT1 *ctx,UI_COLOR c)
 	cairo_set_source_rgba(ctx->dc,r,g,b,a);
 }
 
-#if 0
-void ui_draw_line(DRAW_CONTEXT1 *ctx,int x0_i,int y0_i,int x1_i,int y1_i,UI_COLOR color,double line_width)
+#if USE_WUI
+
+void ui_draw_line(DRAW_CONTEXT1 *ctx,int x0,int y0,int x1,int y1,UI_COLOR color,double line_width)
 {
-	cairo_t *dc=ctx->dc;
-	double x0=ctx->scale*x0_i,y0=ctx->scale*y0_i,x1=ctx->scale*x1_i,y1=ctx->scale*y1_i;
-	line_width*=ctx->scale;
-	if(line_width>2) line_width=2;
-	ui_set_source_color(ctx,color);
-	if(line_width==1 || line_width==2)
-	{
-		cairo_set_line_width(dc,line_width);
-		cairo_move_to(dc,x0,y0);
-		cairo_line_to(dc,x1,y1);
-	}
-	else
-	{
-		cairo_set_line_width(dc,1);
-		cairo_move_to(dc,x0,y0);
-		cairo_line_to(dc,x1,y1);
-		cairo_stroke(dc);
-		
-		color.a*=line_width-1;
-		ui_set_source_color(ctx,color);
-		if(y0==y1)
-		{
-			cairo_move_to(dc,x0,y0+1);
-			cairo_line_to(dc,x1,y1+1);
-		}
-		else
-		{
-			cairo_move_to(dc,x0+1,y0);
-			cairo_line_to(dc,x1+1,y1);
-		}
-	}
-	cairo_stroke(dc);
+	cairo_surface_t *target=cairo_get_target(ctx->dc);
+	cairo_surface_flush(target);
+	
+	double scale=ctx->matrix.xx;
+
+	x0=scale*(x0+ctx->tx)+0.5;
+	y0=scale*(y0+ctx->ty)+0.5;
+	x1=scale*(x1+ctx->tx)+0.5;
+	y1=scale*(y1+ctx->ty)+0.5;
+	
+	L_SDF_CONTEXT *sdf=&ctx->sdf;
+	l_sdf_set_fg(sdf,color.color);
+	l_sdf_set_line(sdf,(float)line_width);
+	l_sdf_moveto(sdf,x0,y0);
+	l_sdf_lineto(sdf,x1,y1);
+
+	cairo_surface_mark_dirty(target);
 }
+
 #else
 void ui_draw_line(DRAW_CONTEXT1 *ctx,int x0_i,int y0_i,int x1_i,int y1_i,UI_COLOR color,double line_width)
 {
@@ -137,6 +126,30 @@ void ui_draw_line(DRAW_CONTEXT1 *ctx,int x0_i,int y0_i,int x1_i,int y1_i,UI_COLO
 }
 #endif
 
+#if USE_WUI
+void ui_draw_rect(DRAW_CONTEXT1 *ctx,int x,int y,int w,int h,UI_COLOR color,double line_width)
+{
+	cairo_surface_t *target=cairo_get_target(ctx->dc);
+	cairo_surface_flush(target);
+	
+	double scale=ctx->matrix.xx;
+
+	x=scale*(x+ctx->tx)+0.5;
+	y=scale*(y+ctx->ty)+0.5;
+	w=scale*w+0.5;
+	h=scale*h+0.5;
+
+	L_SDF_CONTEXT *sdf=&ctx->sdf;
+	l_sdf_set_line(sdf,(float)line_width);
+	l_sdf_set_fg(sdf,color.color);
+	l_sdf_set_bg(sdf,0);
+	l_sdf_moveto(sdf,x,y);
+	l_sdf_rect(sdf,w,h,0);
+
+	cairo_surface_mark_dirty(target);
+}
+
+#else
 void ui_draw_rect(DRAW_CONTEXT1 *ctx,int x_i,int y_i,int w_i,int h_i,UI_COLOR color,double line_width)
 {
 	cairo_t *dc=ctx->dc;
@@ -156,7 +169,30 @@ void ui_draw_rect(DRAW_CONTEXT1 *ctx,int x_i,int y_i,int w_i,int h_i,UI_COLOR co
 	cairo_stroke(dc);
 	cairo_set_antialias(dc,CAIRO_ANTIALIAS_NONE);
 }
+#endif
 
+#if USE_WUI
+void ui_fill_rect(DRAW_CONTEXT1 *ctx,int x,int y,int w,int h,UI_COLOR color)
+{
+	cairo_surface_t *target=cairo_get_target(ctx->dc);
+	cairo_surface_flush(target);
+	
+	double scale=ctx->matrix.xx;
+
+	x=scale*(x+ctx->tx)+0.5;
+	y=scale*(y+ctx->ty)+0.5;
+	w=scale*w+0.5;
+	h=scale*h+0.5;
+
+	L_SDF_CONTEXT *sdf=&ctx->sdf;
+	l_sdf_set_line(sdf,0);
+	l_sdf_set_bg(sdf,color.color);
+	l_sdf_moveto(sdf,x,y);
+	l_sdf_rect(sdf,w,h,0);
+
+	cairo_surface_mark_dirty(target);
+}
+#else
 void ui_fill_rect(DRAW_CONTEXT1 *ctx,int x_i,int y_i,int w_i,int h_i,UI_COLOR color)
 {
 	double x=ctx->scale*(x_i+ctx->tx),y=ctx->scale*(y_i+ctx->ty),w=ctx->scale*w_i,h=ctx->scale*h_i;
@@ -164,7 +200,32 @@ void ui_fill_rect(DRAW_CONTEXT1 *ctx,int x_i,int y_i,int w_i,int h_i,UI_COLOR co
 	cairo_rectangle(ctx->dc,x,y,w,h);
 	cairo_fill(ctx->dc);
 }
+#endif
 
+#if USE_WUI
+void ui_draw_round_rect(DRAW_CONTEXT1 *ctx,int x,int y,int w,int h,int r,UI_COLOR stroke,UI_COLOR fill,double lineWidth)
+{
+	cairo_surface_t *target=cairo_get_target(ctx->dc);
+	cairo_surface_flush(target);
+	
+	double scale=ctx->matrix.xx;
+
+	x=scale*(x+ctx->tx)+0.5;
+	y=scale*(y+ctx->ty)+0.5;
+	w=scale*w+0.5;
+	h=scale*h+0.5;
+	r=scale*r+0.5;
+
+	L_SDF_CONTEXT *sdf=&ctx->sdf;
+	l_sdf_set_line(sdf,(float)lineWidth);
+	l_sdf_set_fg(sdf,stroke.color);
+	l_sdf_set_bg(sdf,fill.color);
+	l_sdf_moveto(sdf,x,y);
+	l_sdf_rect(sdf,w,h,r);
+
+	cairo_surface_mark_dirty(target);
+}
+#else
 void ui_draw_round_rect(DRAW_CONTEXT1 *ctx,int x_i,int y_i,int w_i,int h_i,int r_i,UI_COLOR stroke,UI_COLOR fill,double line_width)
 {
 	cairo_t *dc=ctx->dc;
@@ -200,6 +261,7 @@ void ui_draw_round_rect(DRAW_CONTEXT1 *ctx,int x_i,int y_i,int w_i,int h_i,int r
 	cairo_set_antialias(dc,CAIRO_ANTIALIAS_NONE);
 	cairo_new_path(dc);
 }
+#endif
 
 void ui_draw_text_begin(DRAW_CONTEXT1 *ctx)
 {
@@ -665,42 +727,28 @@ UI_REGION ui_image_region(UI_IMAGE p,double scale)
 	return rgn;
 }
 
-void ui_draw_shadow(DRAW_CONTEXT1 *ctx,int radius,int size,UI_COLOR color)
+void ui_draw_shadow(DRAW_CONTEXT1 *ctx,int radius,UI_SHADOW *config)
 {
 	cairo_t *cr=ctx->dc;
 	cairo_surface_t *target=cairo_get_target(cr);
 	cairo_surface_flush(target);
 
 #if USE_WUI
-	double scale;
-	if(wui->wayland_get_surface(ctx->win))
-	{
-		cairo_matrix_t ctm;
-   		cairo_get_matrix(cr, &ctm);
-		scale=ctm.xx;
-	}
-	else
-	{
-		double sy;
-		cairo_surface_get_device_scale(target,&scale,&sy);
-		(void)sy;
-	}
+	double scale=ctx->matrix.xx;
 	radius=(int)(scale*radius+0.5);
-	size=(int)(scale*size+0.5);
+	int size=(int)(scale*config->len+0.5);
+#else
+	int size=config->len;
 #endif
 	cairo_save(cr);
     cairo_identity_matrix(cr);
 
-	L_SDF_CONTEXT sdf;
-	l_sdf_context_init(&sdf,
-			cairo_image_surface_get_data(target),
-			cairo_image_surface_get_width(target),
-			cairo_image_surface_get_height(target));
-	l_sdf_set_fg(&sdf,color.color);
-	int w=sdf.width-2*size;
-	int h=sdf.height-2*size;
-	l_sdf_moveto(&sdf,size,size);
-	l_sdf_rect_shadow(&sdf,w,h,size,radius);
+	L_SDF_CONTEXT *sdf=&ctx->sdf;
+	l_sdf_set_fg(sdf,config->color.color);
+	int w=sdf->width-2*size;
+	int h=sdf->height-2*size;
+	l_sdf_moveto(sdf,size,size);
+	l_sdf_rect_shadow(sdf,w,h,size,radius);
 
 	cairo_restore(cr);
 	cairo_surface_mark_dirty(target);

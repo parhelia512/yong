@@ -167,6 +167,7 @@ typedef struct{
 	int (*win_bell)(w_win_t win);
 	int (*win_alert)(w_win_t win,const char *title,const char *text);
 	int (*win_center)(w_win_t win);
+	int (*win_preferred_size)(w_win_t win,int *w,int *h);
 	char *(*clipboard_get_text)(void);
 	int (*clipboard_set_text)(const char *text);
 	int (*clipboard_set_mime)(const char *mime,const void *data,int size);

@@ -289,7 +289,18 @@ static void y_im_input_key_at_idle(int *keys)
 	}
 	for(;keys[i]!=0;i++)
 	{
-		y_im_input_key(keys[i]);
+		int key=keys[i];
+		if((key&KEYM_DELAY)!=0)
+		{
+			l_co_sleep(YK_CODE(key));
+			continue;
+		}
+		if(key==CTRL_V)
+		{
+			y_xim_forward_key(key,1);
+			continue;
+		}
+		y_im_input_key(key);
 	}
 	l_free(keys);
 }
@@ -316,6 +327,9 @@ static void y_im_input_key_at_idle(int *keys)
 	}
 	for(;keys[i]!=0;i++)
 	{
+		int key=keys[i];
+		if((key&KEYM_DELAY)!=0)
+			continue;
 		y_im_input_key(keys[i]);
 	}
 	l_free(keys);
@@ -730,6 +744,7 @@ int y_im_input_key(int key)
 	int bing=key&KEYM_BING;
 	int mod=key&KEYM_MASK;
 	key&=~KEYM_CAPS;
+
 	ret=YongHotKey(key);
 	if(ret)
 	{
@@ -1300,6 +1315,16 @@ int y_im_str_to_key(const char *s,int *repeat)
 				return -8;
 			key|=KEYM_SUPER;
 		}
+		else if(!strcmp(tmp,"DELAY"))
+		{
+			if(p[-1]!='_')
+				return -1;
+			key=atoi(p);
+			if(key<0 || key>5000)
+				return -1;
+			key|=KEYM_DELAY;
+			break;
+		}
 		else
 		{
 			for(i=0;str_key_map[i].name;i++)
@@ -1375,7 +1400,7 @@ int *y_im_str_to_keys(const char *s)
 	int keys[64];
 	int count=0;
 	const char *begin=s;
-	while(count<lengthof(keys)-1)
+	while(count<countof(keys)-1)
 	{
 		int key;
 		int repeat;
@@ -1403,7 +1428,7 @@ int *y_im_str_to_keys(const char *s)
 				repeat=1;
 			}
 		}
-		if(!key)
+		if(key<=0)
 			break;
 		while(count<lengthof(keys)-1 && repeat>0)
 		{
@@ -2896,8 +2921,7 @@ char *y_im_get_im_name(int index)
 	entry=y_im_get_config_string("IM",temp);
 	if(entry)
 	{
-		char *p;
-		p=y_im_get_config_string(entry,"name");
+		char *p=y_im_get_config_string(entry,"name");
 		l_free(entry);
 		if(p)
 		{
@@ -2908,7 +2932,7 @@ char *y_im_get_im_name(int index)
 		}
 		else
 		{
-			entry=0;
+			entry=NULL;
 		}
 	}
 	if(!entry && index==im.Index && im.eim)

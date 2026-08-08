@@ -125,6 +125,7 @@ typedef struct {
 #define KEYM_CAPS	0x1000000
 #define KEYM_ON		0x0000000
 #define KEYM_OFF	KEYM_UP
+#define KEYM_DELAY	KEYM_UP
 
 #define YK_CODE(x)	((x)&0xffff)
 
@@ -188,6 +189,7 @@ typedef struct {
 #define YK_KP_7		(KEYM_KEYPAD|'7')
 #define YK_KP_8		(KEYM_KEYPAD|'8')
 #define YK_KP_9		(KEYM_KEYPAD|'9')
+#define YK_KP_ENTER	(KEYM_KEYPAD|YK_ENTER)
 
 #define CTRL_ENTER	(KEYM_CTRL|YK_ENTER)
 #define CTRL_SPACE	(KEYM_CTRL|YK_SPACE)

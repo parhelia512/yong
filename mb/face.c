@@ -2824,6 +2824,7 @@ static int SPDoSearch(int adjust)
 	cset_clear(&cs,CSET_TYPE_PREDICT);
 	ExtraZiReset();
 	y_mb_set_zi(mb,0);
+	mb->ctx.input_sp[0]=0;
 
 	if(mb->fuzzy && CodeGetLen==0 && EIM.CaretPos==EIM.CodeLen)
 		EIM.CodeLen=EIM.CaretPos=fuzzy_correct(mb->fuzzy,EIM.CodeInput,EIM.CodeLen);
@@ -2892,11 +2893,13 @@ static int SPDoSearch(int adjust)
 
 		if(EIM.CodeLen==3)
 			y_mb_set_zi(mb,1);
+		mb->ctx.result_match=1;
 		
 		strcpy(temp,EIM.CodeInput);temp[EIM.CodeLen-1]=0;
 		clen=py2_conv_from_sp(temp,code,0);
 		if(clen>0)
 		{
+			strcpy(mb->ctx.input_sp,temp);
 			int count=y_mb_set(mb,code,clen,hz_filter_temp);
 			if(count>0)
 			{
@@ -2914,7 +2917,9 @@ static int SPDoSearch(int adjust)
 					return PhraseListCount;
 				}
 			}
+			mb->ctx.input_sp[0]=0;
 		}
+		mb->ctx.result_match=0;
 	}
 	// 双拼双辅
 	if(AssistMode && CodeGetLen==0 && EIM.CodeLen==4 && EIM.CaretPos==4 && mb->ass_mb)
@@ -2923,6 +2928,9 @@ static int SPDoSearch(int adjust)
 		int clen=py2_conv_from_sp(temp,code,0);
 		if(clen>0)
 		{
+			y_mb_set_zi(mb,1);
+			mb->ctx.result_match=1;
+			strcpy(mb->ctx.input_sp,temp);
 			int count=y_mb_set(mb,code,clen,hz_filter_temp);
 			if(count>0)
 			{
@@ -2940,6 +2948,9 @@ static int SPDoSearch(int adjust)
 					return PhraseListCount;
 				}
 			}
+			mb->ctx.input_sp[0]=0;
+			y_mb_set_zi(mb,0);
+			mb->ctx.result_match=0;
 		}
 	}
 	// 码表中带$的候选
@@ -3024,9 +3035,11 @@ static int SPDoSearch(int adjust)
 		}while(CodeMatch>1);
 		mb->ctx.result_match=(CodeMatch<EIM.CodeLen);
 		len=strlen(code);
+		l_strncpy(mb->ctx.input_sp,EIM.CodeInput,CodeMatch);
 		if(CodeMatch==2 && py2_sp_unlikely_jp(temp))
 		{
 			y_mb_set_zi(mb,1);
+			mb->ctx.result_match=1;
 			PhraseListCount=y_mb_set(mb,code,len,hz_filter_temp);
 			if(hz_filter_temp && !PhraseListCount && !hz_filter_strict)
 			{
@@ -3038,7 +3051,7 @@ static int SPDoSearch(int adjust)
 		}
 		else
 		{
-			PhraseListCount=y_mb_set(mb,code,len,hz_filter_temp);
+			PhraseListCount=y_mb_set(mb,code,len,hz_filter_temp);	
 		}
 		cset_mb_group_set(&cs,mb,PhraseListCount);
 		PhraseListCount=cset_count(&cs);
@@ -4377,7 +4390,7 @@ L_EXPORT(int tool_optimize(void *arg,void **out))
 	if(!mb_arg.dicts || !mb_arg.dicts[0])
 		mb_arg.dicts=EIM.GetConfig("table","dicts");
 	/* MB_FLAG_SLOW 会在大码表下变得很慢 */
-	mb=y_mb_load(temp,MB_FLAG_SLOW|MB_FLAG_NOUSER|MB_FLAG_NODICTS,NULL);
+	mb=y_mb_load(temp,/*MB_FLAG_SLOW|*/MB_FLAG_NOUSER|MB_FLAG_NODICTS,NULL);
 	if(!mb)
 		return -1;
 	fp=y_mb_open_file(mb->main,(mb->encrypt?"wb":"wb"));

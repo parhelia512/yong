@@ -43,6 +43,7 @@ const W_UI wui={
 	.win_bell=w_win_bell,
 	.win_alert=w_win_alert,
 	.win_center=w_win_center,
+	.win_preferred_size=w_win_preferred_size,
 	.clipboard_get_text=w_clipboard_get_text,
 	.clipboard_set_text=w_clipboard_set_text,
 	.clipboard_set_mime=w_clipboard_set_mime,

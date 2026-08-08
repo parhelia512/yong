@@ -119,6 +119,7 @@ static void calc_ui_scale(void)
 	}
 	ui_surface_scale=wui->win_get_scale(NULL);
 	ui_res_scale=ui_scale*ui_surface_scale;
+	// printf("screen size changed %f %f\n",ui_scale,ui_res_scale);
 }
 
 static int main_click_cb(w_win_t win,const W_EVENT *e,void *data)
@@ -133,8 +134,8 @@ static int main_click_cb(w_win_t win,const W_EVENT *e,void *data)
 	}
 	UI_EVENT ue={
 		.event=e->type==W_MOUSE_DOWN?UI_EVENT_DOWN:UI_EVENT_UP,
-		.x=e->mouse.x-MainTheme.shadow_size,
-		.y=e->mouse.y-MainTheme.shadow_size,
+		.x=e->mouse.x-MainTheme.shadow.len,
+		.y=e->mouse.y-MainTheme.shadow.len,
 		.which=e->mouse.button==W_BUTTON_LEFT?UI_BUTTON_LEFT:UI_BUTTON_RIGHT,
 	};
 	if(ue.x<0 || ue.x>=MainWin_W || ue.y<0 || ue.y>=MainWin_W)
@@ -232,8 +233,8 @@ static int main_motion_cb(w_win_t win,const W_EVENT *e,void *data)
 	}
 	UI_EVENT ue={
 		.event=UI_EVENT_MOVE,
-		.x=e->mouse.x-MainTheme.shadow_size,
-		.y=e->mouse.y-MainTheme.shadow_size,
+		.x=e->mouse.x-MainTheme.shadow.len,
+		.y=e->mouse.y-MainTheme.shadow.len,
 	};
 	if(ue.x<0 || ue.x>=MainWin_W || ue.y<0 || ue.y>=MainWin_W)
 		return 0;
@@ -262,10 +263,10 @@ static int on_main_draw(w_win_t win,const W_EVENT *e,void *data)
 {
 	DRAW_CONTEXT1 ctx;
 	ui_draw_begin(&ctx,win,e->draw.cr);
-	if(MainTheme.shadow_size)
+	if(MainTheme.shadow.len)
 	{
-		ui_draw_shadow(&ctx,MainTheme.radius,MainTheme.shadow_size,MainTheme.shadow_color);
-		ui_draw_translate(&ctx,MainTheme.shadow_size,MainTheme.shadow_size);
+		ui_draw_shadow(&ctx,MainTheme.radius,&MainTheme.shadow);
+		ui_draw_translate(&ctx,MainTheme.shadow.len,MainTheme.shadow.len);
 	}
 	ui_draw_main_win(&ctx);
 	ui_draw_end(&ctx);
@@ -278,9 +279,9 @@ static int input_motion_cb(w_win_t win,const W_EVENT *e,void *data)
 		return 0;
 	int x,y;
 	wui->win_get_pos(win,&x,&y);
-	InputWin_X=x+e->mouse.x-InputWin_Drag_X+InputTheme.shadow_size;
-	InputWin_Y=y+e->mouse.y-InputWin_Drag_Y+InputTheme.shadow_size;
-	wui->win_move(win,InputWin_X-InputTheme.shadow_size,InputWin_Y-InputTheme.shadow_size);
+	InputWin_X=x+e->mouse.x-InputWin_Drag_X+InputTheme.shadow.len;
+	InputWin_Y=y+e->mouse.y-InputWin_Drag_Y+InputTheme.shadow.len;
+	wui->win_move(win,InputWin_X-InputTheme.shadow.len,InputWin_Y-InputTheme.shadow.len);
 	return 1;
 }
 
@@ -291,8 +292,8 @@ static int input_click_cb(w_win_t win,const W_EVENT *e,void *data)
 	if(e->type==W_MOUSE_DOWN && e->mouse.button==W_BUTTON_LEFT)
 	{
 		if(InputWin_Drag) return 0;
-		int x=e->mouse.x-InputTheme.shadow_size;
-		int y=e->mouse.y-InputTheme.shadow_size;
+		int x=e->mouse.x-InputTheme.shadow.len;
+		int y=e->mouse.y-InputTheme.shadow.len;
 		if(x >= InputTheme.CandX && y>= InputTheme.CandY)
 		{
 			EXTRA_IM *eim=CURRENT_EIM();
@@ -320,8 +321,8 @@ static int input_click_cb(w_win_t win,const W_EVENT *e,void *data)
 			EXTRA_IM *eim=CURRENT_EIM();
 			if(!eim)
 				return 1;
-			double x=e->mouse.x-InputTheme.shadow_size;
-			double y=e->mouse.y-InputTheme.shadow_size;
+			double x=e->mouse.x-InputTheme.shadow.len;
+			double y=e->mouse.y-InputTheme.shadow.len;
 			if(x < InputTheme.CandX || y< InputTheme.CandY)
 				return 1;
 			int count=eim->CandWordCount;
@@ -404,10 +405,10 @@ static int on_input_draw(w_win_t win,const W_EVENT *e,void *data)
 {
 	DRAW_CONTEXT1 ctx;
 	ui_draw_begin(&ctx,win,e->draw.cr);
-	if(InputTheme.shadow_size)
+	if(InputTheme.shadow.len)
 	{
-		ui_draw_shadow(&ctx,InputTheme.radius[0],InputTheme.shadow_size,InputTheme.shadow_color);
-		ui_draw_translate(&ctx,InputTheme.shadow_size,InputTheme.shadow_size);
+		ui_draw_shadow(&ctx,InputTheme.radius[0],&InputTheme.shadow);
+		ui_draw_translate(&ctx,InputTheme.shadow.len,InputTheme.shadow.len);
 	}
 	ui_draw_input_win(&ctx);
 	ui_draw_end(&ctx);
@@ -600,7 +601,7 @@ int ui_main_show(int show)
 	{
 		gint w,h;
 		int wa_x,wa_y,wa_w,wa_h;
-		w=MainWin_W+2*MainTheme.shadow_size;h=MainWin_H+2*MainTheme.shadow_size;
+		w=MainWin_W+2*MainTheme.shadow.len;h=MainWin_H+2*MainTheme.shadow.len;
 		wui->get_workarea(MainWin,&wa_x,&wa_y,&wa_w,&wa_h);
 		MainWin_X=wa_x+wa_w-w;MainWin_Y=wa_y+wa_h-h;
 		wui->win_move(MainWin,MainWin_X,MainWin_Y);
@@ -609,7 +610,7 @@ int ui_main_show(int show)
 	{
 		gint w;
 		int wa_x,wa_w;
-		w=MainWin_W+2*MainTheme.shadow_size;
+		w=MainWin_W+2*MainTheme.shadow.len;
 		wui->get_workarea(MainWin,&wa_x,NULL,&wa_w,NULL);
 		MainWin_X=wa_x+(wa_w-w)/2;
 		MainWin_Y=0;
@@ -618,7 +619,7 @@ int ui_main_show(int show)
 	else if(show && MainWin_X==2 && MainWin_Y==-1)		// left bottom
 	{
 		gint wa_x,wa_y,wa_w,wa_h;
-		gint h=MainWin_H+2*MainTheme.shadow_size;
+		gint h=MainWin_H+2*MainTheme.shadow.len;
 		wui->get_workarea(MainWin,&wa_x,&wa_y,&wa_w,&wa_h);
 		MainWin_X=wa_x;MainWin_Y=wa_y+wa_h-h;
 		wui->win_move(MainWin,wa_x,wa_y+wa_h-h);
@@ -660,8 +661,7 @@ static int ui_main_update(UI_MAIN *param)
 	MainTheme.line_width=param->line_width;
 	MainTheme.move_style=param->move_style;
 	MainTheme.radius=param->radius;
-	MainTheme.shadow_size=param->shadow_size;
-	MainTheme.shadow_color=param->shadow_color;
+	ui_shadow_init(&MainTheme.shadow,param->shadow);
 	if(param->bg[0]=='#')
 	{
 		MainTheme.bg_color=ui_color_parse(param->bg);
@@ -672,7 +672,7 @@ static int ui_main_update(UI_MAIN *param)
 			MainWin_W=(int)round(MainWin_W*ui_scale);
 			MainWin_H=(int)round(MainWin_H*ui_scale);
 			MainTheme.radius=(int)round(param->radius*ui_scale);
-			MainTheme.shadow_size=(int)round(param->shadow_size*ui_scale);
+			MainTheme.shadow.len=(int)round(MainTheme.shadow.len*ui_scale);
 		}
 	}
 	else
@@ -694,8 +694,8 @@ static int ui_main_update(UI_MAIN *param)
 			ui_image_size(MainTheme.bg,&MainWin_W,&MainWin_H);
 		}
 	}
-	int real_width=MainWin_W+2*MainTheme.shadow_size;
-	int real_height=MainWin_H+2*MainTheme.shadow_size;
+	int real_width=MainWin_W+2*MainTheme.shadow.len;
+	int real_height=MainWin_H+2*MainTheme.shadow.len;
 	wui->win_resize(MainWin,real_width,real_height);
 	MainTheme.move=param->move;
 	MainWin_X=param->rc.x;MainWin_Y=param->rc.y;
@@ -837,6 +837,11 @@ static int ui_input_update(UI_INPUT *param)
 			InputTheme.page.down[i]=NULL;
 		}
 	}
+	if(InputTheme.pets)
+	{
+		l_slist_free(InputTheme.pets,(LFreeFunc)ui_pet_free);
+		InputTheme.pets=NULL;
+	}
 
 	InputTheme.line=param->line;
 	InputTheme.caret=param->caret;
@@ -867,8 +872,8 @@ static int ui_input_update(UI_INPUT *param)
 	InputTheme.radius[0]=param->radius[0];
 	InputTheme.radius[1]=param->radius[1];
 
-	InputTheme.shadow_size=param->shadow_size;
-	InputTheme.shadow_color=param->shadow_color;
+	ui_shadow_init(&InputTheme.shadow,param->shadow);
+	InputTheme.pets=ui_pets_new(param->pets);
 
 	if(InputTheme.scale==1 && ui_scale!=1)
 	{
@@ -934,7 +939,7 @@ static int ui_input_update(UI_INPUT *param)
 			InputTheme.radius[0]=(int)round(ui_scale*InputTheme.radius[0]);
 			InputTheme.radius[1]=(int)round(ui_scale*InputTheme.radius[1]);
 			
-			InputTheme.shadow_size=(int)round(ui_scale*InputTheme.shadow_size);
+			InputTheme.shadow.len=(int)round(ui_scale*InputTheme.shadow.len);
 		}
 		if(InputTheme.WorkBottom==0)
 		{
@@ -1430,6 +1435,12 @@ int YongDrawInput(void)
 		TempWidth=InputTheme.mWidth;
 	if(InputTheme.line==2 && TempHeight<InputTheme.mHeight)
 		TempHeight=InputTheme.mHeight;
+
+	// 只调整宽度，高度调整的话，底部的内边距会比较不自然
+	int WidthWithShadow=TempWidth+2*InputTheme.shadow.len;
+	wui->win_preferred_size(InputWin,&WidthWithShadow,NULL);
+	TempWidth=WidthWithShadow-2*InputTheme.shadow.len;
+
 	DeltaWidth=TempWidth-InputTheme.RealWidth;
 	DeltaHeight=TempHeight-InputTheme.RealHeight;
 	if(DeltaWidth || DeltaHeight)
@@ -1437,11 +1448,11 @@ int YongDrawInput(void)
 		InputTheme.RealWidth=TempWidth;
 		InputTheme.RealHeight=TempHeight;
 
-		int real_width=InputTheme.RealWidth+2*InputTheme.shadow_size;
-		int real_height=InputTheme.RealHeight+2*InputTheme.shadow_size;
+		int real_width=InputTheme.RealWidth+2*InputTheme.shadow.len;
+		int real_height=InputTheme.RealHeight+2*InputTheme.shadow.len;
 		wui->win_resize(InputWin,real_width,real_height);
 	}
-	if(PageWidth && InputTheme.line==2)
+	// if(PageWidth && InputTheme.line==2)
 	{
 		im.PagePosX=InputTheme.RealWidth-InputTheme.WorkRight-
 			(InputTheme.CodeX-InputTheme.WorkLeft)-PageWidth;
@@ -1553,8 +1564,8 @@ static int ui_input_move(int off,int *x,int *y)
 	if(*x==InputWin_X && *y==InputWin_Y)
 		return 0;
 
-	int real_x=*x-InputTheme.shadow_size;
-	int real_y=*y-InputTheme.shadow_size;
+	int real_x=*x-InputTheme.shadow.len;
+	int real_y=*y-InputTheme.shadow.len;
 
 	wui->win_move(InputWin,real_x,real_y);
 	InputWin_X=*x;
@@ -1567,16 +1578,16 @@ static int ui_input_show(int show)
 {
 	if(show)
 	{
-		int real_x=InputWin_X-InputTheme.shadow_size;
-		int real_y=InputWin_Y-InputTheme.shadow_size;
+		int real_x=InputWin_X-InputTheme.shadow.len;
+		int real_y=InputWin_Y-InputTheme.shadow.len;
 		wui->win_move(InputWin,real_x,real_y);
 		ui_win_show(InputWin,1);
 	}
 	else
 	{
 		wui->win_get_pos(InputWin,&InputWin_X,&InputWin_Y);
-		InputWin_X+=InputTheme.shadow_size;
-		InputWin_Y+=InputTheme.shadow_size;
+		InputWin_X+=InputTheme.shadow.len;
+		InputWin_Y+=InputTheme.shadow.len;
 		CONNECT_ID *id=y_xim_get_connect();
 		if(id)
 		{

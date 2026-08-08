@@ -38,13 +38,6 @@ void *l_pthread_wrapper(void *param)
 	return (void*)(size_t)func(arg);
 }
 
-uint64_t l_ticks(void)
-{
-	struct timespec t;
-	clock_gettime(CLOCK_MONOTONIC,&t);
-	return t.tv_sec*1000+t.tv_nsec/1000000;
-}
-
 #endif
 #endif
 
@@ -156,3 +149,34 @@ int l_rand(int min,int max)
 #endif
 }
 
+#ifdef _WIN32
+uint64_t l_ticks(void)
+{
+    static LARGE_INTEGER s_frequency = {0};
+    if (s_frequency.QuadPart == 0) {
+        QueryPerformanceFrequency(&s_frequency);
+    }
+
+    LARGE_INTEGER current_time;
+    QueryPerformanceCounter(&current_time);
+
+    uint64_t t = (uint64_t)current_time.QuadPart;
+    uint64_t f = (uint64_t)s_frequency.QuadPart;
+
+    uint64_t ms_from_seconds = (t / f) * 1000;
+
+    uint64_t ms_from_remainder = ((t % f) * 1000) / f;
+
+    return ms_from_seconds + ms_from_remainder;
+}
+
+#else
+
+uint64_t l_ticks(void)
+{
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC,&t);
+	return t.tv_sec*1000+t.tv_nsec/1000000;
+}
+
+#endif

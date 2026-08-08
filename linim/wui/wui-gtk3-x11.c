@@ -78,8 +78,8 @@ static gboolean on_draw(GtkWidget *widget, cairo_t *cr, w_win_t win)
 		cairo_surface_t *surface=cairo_image_surface_create_for_data(win->surface_data,CAIRO_FORMAT_ARGB32,w,h,w*4);
 		double sx, sy;
 		cairo_surface_get_device_scale(target, &sx, &sy);
-		cairo_surface_set_device_scale(surface,sx,sy);
 		cairo_t *cr2=cairo_create(surface);
+		cairo_scale(cr2,sx,sy);
 
 		W_EVENT e;
 		e.type = W_DRAW;
@@ -89,6 +89,7 @@ static gboolean on_draw(GtkWidget *widget, cairo_t *cr, w_win_t win)
 
 		cairo_destroy(cr2);
 
+		cairo_surface_set_device_scale(surface,sx,sy);
 		cairo_set_source_surface(cr, surface, 0, 0);
 		cairo_paint(cr);
 

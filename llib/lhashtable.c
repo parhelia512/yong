@@ -135,8 +135,8 @@ static inline void *_slist_find_item(void *p,const void *item,LHashTable *h)
 
 void *l_hash_table_lookup(LHashTable *h,const void *key)
 {
-	if(!h->offset)
-		return NULL;
+	// if(!h->offset)
+	//	return NULL;
 	int index=h->hash(key)%h->size;
 	return _slist_find_key(h->array[index],key,h);
 }

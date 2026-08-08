@@ -283,9 +283,8 @@ struct{
 		int space;
 		int size;
 	}page;
-
-	int shadow_size;
-	UI_COLOR shadow_color;
+	UI_SHADOW shadow;
+	UI_PET *pets;
 }InputTheme;
 
 struct{
@@ -299,8 +298,7 @@ struct{
 	UI_COLOR border;
 	UI_RECT move;
 
-	int shadow_size;
-	UI_COLOR shadow_color;
+	UI_SHADOW shadow;
 }MainTheme;
 
 static bool ui_pt_in_rect(const UI_RECT *rc,int x,int y)
@@ -640,6 +638,7 @@ static void ui_draw_main_win(DRAW_CONTEXT1 *ctx)
 	}
 }
 
+static void ui_pets_draw(DRAW_CONTEXT1 *ctx,int z_index);
 static void ui_draw_input_win(DRAW_CONTEXT1 *ctx)
 {
 	double scale=InputTheme.scale!=1?ui_scale:1;
@@ -701,6 +700,8 @@ static void ui_draw_input_win(DRAW_CONTEXT1 *ctx)
 			ui_draw_line(ctx,l,m-1,w-r,m-1,InputTheme.sep,InputTheme.line_width*scale);
 		}
 	}
+
+	ui_pets_draw(ctx,0);
 	
 	if(InputTheme.caret && !(y_xim_get_onspot() && InputTheme.line==1 && im.Preedit==1))
 	{
@@ -861,5 +862,205 @@ static void ui_draw_input_win(DRAW_CONTEXT1 *ctx)
 		}
 	}
 	ui_draw_text_end(ctx);
+	ui_pets_draw(ctx,1);
 }
 
+int ui_shadow_init(UI_SHADOW *s,const char *c)
+{
+	int len;
+	char color[32];
+	s->len=0;
+	s->color.color=0;
+	if(!c)
+		return -1;
+	int ret=l_sscanf(c,"%d %31s %f,%f %f,%f",&len,color,&s->x1,&s->y1,&s->x2,&s->y2);
+	if(ret!=1 && ret!=2 && ret!=6)
+		return -1;
+	if(len<3 || len>63)
+		return -2;
+	s->len=len;
+	s->color=ui_color_parse(ret>1?color:"#00000040");
+	if(ret>2)
+	{
+		if(s->x1<0.0f || s->x1>1.0f || s->y1<0.0f || s->y1>1.0f)
+			return -3;
+		if(s->x2<0.0f || s->x2>1.0f || s->y2<0.0f || s->y2>1.0f)
+			return -3;
+	}
+	else
+	{
+		s->x1=0.0f;
+		s->y1=1.0f;
+		s->x2=0.5f;
+		s->y2=0.0f;
+	}
+	return 0;
+}
+
+static uint32_t ui_anchor_parse(const char *s)
+{
+	uint32_t r=0;
+	int c;
+	for(int i=0;(c=s[i])!='\0';i++)
+	{
+		if(c>='A' && c<='Z')
+		{
+			r|=1<<(c-'A');
+		}
+	}
+	return r;
+}
+
+static UI_PET *ui_pet_new(const char *c)
+{
+	if(!c)
+		return NULL;
+	double scale=InputTheme.scale!=1?ui_scale:1;
+	char which[8],image[64],anchor[8];
+	int w,h,off_x=0,off_y=0,z_index=0;
+	int ret=l_sscanf(c,"%7s %63s %7s %d,%d %d,%d %d",which,image,anchor,&w,&h,&off_x,&off_y,&z_index);
+	if(ret<7)
+	{
+		// fprintf(stderr,"pet config %s bad\n",c);
+		return NULL;
+	}
+	UI_PET *p=l_new(UI_PET);
+	strcpy(p->which,which);
+	p->image=ui_image_load_scale(image,scale*ui_res_scale,w,h,IMAGE_SKIN);
+	if(!p->image)
+	{
+		// fprintf(stderr,"pet load %s fail\n",image);
+		l_free(p);
+		return NULL;
+	}
+	p->anchor=ui_anchor_parse(anchor);
+	p->w=(int)round(w*scale);
+	p->h=(int)round(h*scale);
+	p->off_x=(int)round(off_x*scale);
+	p->off_y=(int)round(off_y*scale);
+	p->z_index=z_index;
+
+	return p;
+}
+
+UI_PET *ui_pets_new(LPtrArray *arr)
+{
+	if(!arr)
+		return NULL;
+	int len=l_ptr_array_length(arr);
+	UI_PET *r=NULL;
+	for(int i=0;i<len;i++)
+	{
+		const char *c=l_ptr_array_nth(arr,i);
+		UI_PET *p=ui_pet_new(c);
+		if(p)
+			r=l_slist_prepend(r,p);
+	}
+	return r;
+
+}
+
+void ui_pet_free(UI_PET *p)
+{
+	if(!p)
+		return;
+	ui_image_free(p->image);
+	l_free(p);
+}
+
+static int ui_pet_get_rect(const char *which,UI_RECT *rc)
+{
+	if(!strcmp(which,"input"))
+	{
+		*rc=(UI_RECT){0,0,InputTheme.RealWidth,InputTheme.RealHeight};
+		return 0;
+	}
+	if(!strcmp(which,"code"))
+	{
+		*rc=(UI_RECT){
+			im.CodePos[1],
+			InputTheme.CodeY,
+			im.CodePos[3]-im.CodePos[1],
+			im.cursor_h};
+		return 0;
+	}
+	if(!strcmp(which,"caret"))
+	{
+		*rc=(UI_RECT){
+			im.CodePos[2],
+			InputTheme.CodeY,
+			(int)ceil(InputTheme.line_width),
+			im.cursor_h};
+		return 0;
+	}
+	EXTRA_IM *eim=CURRENT_EIM();
+	if(!eim)
+		return -1;
+	if(!strcmp(which,"select") && eim->SelectIndex<eim->CandWordCount)
+	{
+		double *posx=im.CandPosX+3*eim->SelectIndex;
+		double *posy=im.CandPosY+3*eim->SelectIndex;
+
+		*rc=(UI_RECT){
+			(int)posx[1],
+			(int)posy[1],
+			im.CandWidth[eim->SelectIndex],
+			im.CandHeight[eim->SelectIndex],
+		};
+		return 0;
+	}
+	return -1;
+}
+
+static void ui_pet_anchor_calc(UI_RECT *rc,uint32_t anchor,int *x,int *y)
+{
+	uint32_t L=anchor&(1<<('L'-'A'));
+	uint32_t T=anchor&(1<<('T'-'A'));
+	uint32_t R=anchor&(1<<('R'-'A'));
+	uint32_t B=anchor&(1<<('B'-'A'));
+	if(L && !R)
+		*x=rc->x;
+	else if(R && !L)
+		*x=rc->x+rc->w-1;
+	else
+		*x=(rc->x+rc->w/2);
+	
+	if(T && !B)
+		*y=rc->y;
+	else if(B && !T)
+		*y=rc->y+rc->h-1;
+	else
+		*y=(rc->y+rc->h/2);
+}
+
+int ui_pet_get_pos(UI_PET *p,int *x,int *y)
+{
+	UI_RECT rc;
+	if(0!=ui_pet_get_rect(p->which,&rc))
+		return -1;
+
+	int anchor_x,anchor_y;
+	ui_pet_anchor_calc(&rc,p->anchor,&anchor_x,&anchor_y);
+
+	*x=anchor_x+p->off_x;
+	*y=anchor_y+p->off_y;
+	return 0;
+}
+
+static void ui_pets_draw(DRAW_CONTEXT1 *ctx,int z_index)
+{
+	UI_PET *p=InputTheme.pets;
+	while(p!=NULL)
+	{
+		if(p->z_index==z_index)
+		{
+			int x,y;
+			int ret=ui_pet_get_pos(p,&x,&y);
+			if(ret==0)
+			{
+				ui_stretch_image(ctx,p->image,x,y,p->w,p->h);
+			}
+		}
+		p=p->next;
+	}
+}

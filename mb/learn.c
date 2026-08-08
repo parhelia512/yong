@@ -375,7 +375,7 @@ static void y_mb_build_jp_index(LEARN_DATA *data)
 {
 	if(data->mb->split<=1)
 		return;
-	// clock_t start=clock();
+	// uint64_t start=l_ticks();
 	for(int i=0;i<data->it_count;i++)
 	{
 		char jp[8];
@@ -406,7 +406,7 @@ static void y_mb_build_jp_index(LEARN_DATA *data)
 		}
 	}
 #endif
-	// printf("%.3f\n",(clock()-start)*1.0/CLOCKS_PER_SEC);
+	// printf("%.3f\n",(l_ticks()-start)*0.001);
 }
 
 LEARN_DATA *y_mb_learn_load(struct y_mb *mb,const char *in)
@@ -660,7 +660,6 @@ static int mmseg_exist(MMSEG *mm,py_item_t *input,int count)
 */
 static int mmseg_logcf(MMSEG *mm,int pos,int len,struct y_mb_ci **ci)
 {
-	char code[Y_MB_KEY_SIZE+1];
 	int max=0,max2=0;
 	int ext=0;
 	int i;
@@ -675,6 +674,8 @@ static int mmseg_logcf(MMSEG *mm,int pos,int len,struct y_mb_ci **ci)
 	list=(struct y_mb_ci*)(((uintptr_t)list)&~0x03);
 	
 	// code只在单字的时候使用
+	int code_len;
+	char code[Y_MB_KEY_SIZE+1];
 	code[0]=0;
 
 	if(!l_predict_data)
@@ -722,9 +723,9 @@ static int mmseg_logcf(MMSEG *mm,int pos,int len,struct y_mb_ci **ci)
 			const char *s=(char*)&list->data;
 			if(code[0]==0)
 			{
-				py2_build_string_no_split(code,mm->input+pos,len);
+				code_len=py2_build_string_no_split(code,mm->input+pos,len);
 			}
-			if(y_mb_is_good_code(mm->mb,code,s))
+			if(y_mb_is_good_code(mm->mb,code,code_len,s))
 			{			
 				if(gb_is_hz((uint8_t*)s))
 					freq=l_predict_data->hz_freq[GB2312_HZ_OFFSET(s)];

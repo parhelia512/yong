@@ -42,11 +42,13 @@ struct y_mb_zi{
 	struct y_mb_zi *next;
 	/* main code */
 	l_cptr_t code;
-	/* just the hz val */
+	/* hz gb18030 code */
 	uint32_t data;
+	/* first code in a-z */
+	uint32_t first;
 };
 #pragma pack()
-static_assert(sizeof(struct y_mb_zi)==sizeof(void*)+sizeof(l_cptr_t)+4,"mb zi size bad");
+static_assert(sizeof(struct y_mb_zi)==sizeof(void*)+sizeof(l_cptr_t)+8,"mb zi size bad");
 
 /* use array to store rules */
 struct y_mb_rule{
@@ -123,6 +125,7 @@ struct y_mb_context{
 	struct y_mb_index *result_index;
 	void *result_ci;
 	char input[Y_MB_KEY_SIZE+1];
+	char input_sp[Y_MB_KEY_SIZE+1];
 };
 
 /* pin ci */
@@ -340,7 +343,7 @@ struct y_mb_ci *y_mb_code_exist(struct y_mb *mb,const char *code,int len,int cou
 int y_mb_code_cmp(const struct y_mb_code *c1,const struct y_mb_code *c2,int len);
 void y_mb_code_get_string(const struct y_mb *mb,const struct y_mb_code *c,char *out);
 struct y_mb_ci *y_mb_ci_exist(struct y_mb *mb,const char *data,int dic);
-int y_mb_is_good_code(struct y_mb *mb,const char *code,const char *s);
+int y_mb_is_good_code(struct y_mb *mb,const char *code,int clen,const char *s);
 char *y_mb_ci_string(struct y_mb_ci *ci);
 int y_mb_ci_string2(struct y_mb_ci *ci,char *out);
 int y_mb_predict_simple(struct y_mb *mb,char *s,char *out,int *out_len,int (*freq)(const char *));
@@ -379,6 +382,7 @@ static inline void y_mb_context_reset(struct y_mb *mb)
 	if(!mb)
 		return;
 	mb->ctx.input[0]=0;
+	mb->ctx.input_sp[0]=0;
 	mb->ctx.result_filter_ext=0;
 	mb->ctx.result_match=0;
 	mb->ctx.result_count=0;

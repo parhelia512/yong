@@ -42,8 +42,8 @@ if(BUILD=="w32"){
 		env("CC=$(CROSS_COMPILE)gcc");
 		env("CXX=$(CROSS_COMPILE)g++");
 	}else{
-		env("CC=clang -m64");
-		env("CXX=clang++ -m64");
+		env("CC=clang");
+		env("CXX=clang++");
 	}
 	env("PICFLAGS=-fPIC");
 	if(os.platform()=='linux')

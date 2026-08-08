@@ -10,6 +10,10 @@ typedef struct{
 }L_SDF_SURFACE;
 
 typedef struct{
+	float x1,y1,x2,y2;
+}L_SDF_SHADOW;
+
+typedef struct{
 	uint32_t *pixels;
 	int width;
 	int height;
@@ -20,6 +24,8 @@ typedef struct{
 	uint32_t fg;
 	int x;
 	int y;
+
+	L_SDF_SHADOW shadow;
 }L_SDF_CONTEXT;
 
 static inline uint32_t l_sdf_byte_mul(uint32_t c,uint32_t a)
@@ -53,18 +59,8 @@ static inline uint32_t l_sdf_premultiply_with(uint32_t c,uint32_t a)
 int l_sdf_moveto(L_SDF_CONTEXT *ctx,int x,int y);
 int l_sdf_lineto(L_SDF_CONTEXT *ctx,int x,int y);
 int l_sdf_rect(L_SDF_CONTEXT *ctx,int w,int h,int r);
-int l_sdf_rect_shadow(L_SDF_CONTEXT *ctx,int w,int h,int r0,int r1);
-
-static inline void l_sdf_context_init(L_SDF_CONTEXT *ctx,void *pixels,int w,int h)
-{
-	ctx->pixels=pixels;
-	ctx->width=w;
-	ctx->height=h;
-	ctx->stride=w;
-	ctx->line_width=1.0f;
-	ctx->x=ctx->y=0;
-	ctx->bg=ctx->fg=0;
-}
+int l_sdf_rect_shadow(L_SDF_CONTEXT *ctx,int w,int h,int len,int r);
+void l_sdf_context_init(L_SDF_CONTEXT *ctx,void *pixels,int w,int h);
 
 static inline void l_sdf_set_fg(L_SDF_CONTEXT *ctx,uint32_t c)
 {
@@ -79,6 +75,14 @@ static inline void l_sdf_set_bg(L_SDF_CONTEXT *ctx,uint32_t c)
 static inline void l_sdf_set_line(L_SDF_CONTEXT *ctx,float line_width)
 {
 	ctx->line_width=line_width;
+}
+
+static inline void l_sdf_set_shadow(L_SDF_CONTEXT *ctx,float x1,float y1,float x2,float y2)
+{
+	ctx->shadow.x1=x1;
+	ctx->shadow.y1=y1;
+	ctx->shadow.x2=x2;
+	ctx->shadow.y2=y2;
 }
 
 static inline L_SDF_SURFACE *l_sdf_slice(L_SDF_SURFACE *surface,int x,int y,int w,int h)

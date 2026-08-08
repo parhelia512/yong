@@ -900,7 +900,7 @@ void bs_zip(const char *in,int len,uint8_t *out,int method,const uint8_t *map)
 	BITSTREAM bs={
 		.p=out+1,
 	};
-	for(int i=1;i<size;i++)
+	for(int i=1;i<=size;i++)
 		out[i]=0;
 	for(int i=0;i<len;i++)
 	{

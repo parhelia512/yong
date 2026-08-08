@@ -71,6 +71,7 @@ static uint8_t num_mode;
 static uint8_t space_mode;
 static uint8_t auto_show;
 static uint8_t kp_mode;
+static uint8_t kpe_mode;
 static uint8_t abcd_mode;
 static uint8_t cnen_mode;
 static uint8_t caps_bd_mode;
@@ -436,20 +437,7 @@ void update_main_window(void)
 
 	if(param.bg[0]=='#')
 	{
-		tmp=(char*)	l_key_file_get_data(ConfigSkin,main_group,"shadow");
-		if(tmp && tmp[0])
-		{
-			int ret,size;
-			char color[32];
-			ret=l_sscanf(tmp,"%d %31s",&size,color);
-			if(ret>=1)
-			{
-				param.shadow_size=size;
-				param.shadow_color=ui_color_parse(ret==2?color:"#00000040");
-				if(size<3 || size>32 || param.shadow_color.a==0)
-					param.shadow_size=0;
-			}
-		}
+		param.shadow=l_key_file_get_data(ConfigSkin,main_group,"shadow");
 	}
 
 	y_ui_main_update(&param);
@@ -817,20 +805,19 @@ void update_input_window(void)
 
 	if(param.bg[0][0]=='#')
 	{
-		tmp=(char*)	l_key_file_get_data(ConfigSkin,input_group,"shadow");
-		if(tmp && tmp[0])
-		{
-			int ret,size;
-			char color[32];
-			ret=l_sscanf(tmp,"%d %31s",&size,color);
-			if(ret>=1)
-			{
-				param.shadow_size=size;
-				param.shadow_color=ui_color_parse(ret==2?color:"#00000040");
-				if(size<3 || size>32 || param.shadow_color.a==0)
-					param.shadow_size=0;
-			}
-		}
+		param.shadow=l_key_file_get_data(ConfigSkin,input_group,"shadow");
+	}
+
+	for(int i=0;i<10;i++)
+	{
+		char key[16];
+		sprintf(key,"pet[%d]",i);
+		const char *pet=l_key_file_get_data(ConfigSkin,input_group,key);
+		if(!pet)
+			break;
+		if(!param.pets)
+			param.pets=l_ptr_array_new(10);
+		l_ptr_array_append(param.pets,pet);
 	}
 
 	y_ui_input_update(&param);
@@ -839,6 +826,7 @@ void update_input_window(void)
 	l_free(param.border);
 	l_free(param.font);
 	l_free(param.sep);
+	l_ptr_array_free(param.pets,NULL);
 	for(i=0;i<L_ARRAY_SIZE(param.text);i++)
 		l_free(param.text[i]);
 #endif
@@ -1137,6 +1125,7 @@ void update_im(void)
 	
 	auto_show=y_im_get_config_int("input","auto_show");
 	kp_mode=y_im_get_config_int("IM","keypad");
+	kpe_mode=y_im_get_config_int("IM","keypad_enter");
 	abcd_mode=y_im_get_config_int("IM","ABCD");
 	cnen_mode=y_im_get_config_int("IM","CNen_commit");
 	caps_bd_mode=y_im_get_config_int("IM","caps_bd");
@@ -1701,6 +1690,8 @@ void YongUpdateInputDesc(EXTRA_IM *eim)
 		y_im_key_desc_first(eim->CodeInput[0],eim->CodeLen>1?2:1,temp,sizeof(temp));
 		y_im_str_encode(temp,im.CodeInput,DONT_ESCAPE);
 		int len=y_im_str_len(im.CodeInput);
+		if(eim->CaretPos>=0)
+			im.CaretPos=eim->CaretPos+len-1;
 		y_im_str_encode(eim->CodeInput+1,(char*)(im.CodeInput+len),DONT_ESCAPE);
 	}
 	else if(eim->WorkMode!=EIM_WM_NORMAL)
@@ -1795,22 +1786,20 @@ static void word_to_ch_select(const char *s)
 
 int YongKeyInput(int key,int mod)
 {
-	CONNECT_ID *id;
 	int ret=IMR_NEXT;
 
-	id=y_xim_get_connect();
+	CONNECT_ID *id=y_xim_get_connect();
 	if(!id || !id->state)
 	{
 		return 0;
 	}
 	if(id->corner==CORNER_FULL && id->lang==LANG_EN)
 	{
-		const char *ret;
 		if(kp_mode==0 && (key&KEYM_KEYPAD))
 			key&=~KEYM_KEYPAD;
 		if(key&KEYM_SHIFT)
 			key=YK_CODE(key);
-		ret=YongFullChar(key);
+		const char *ret=YongFullChar(key);
 		if(ret) y_xim_send_string(ret);
 		return ret?1:0;
 	}
@@ -1819,9 +1808,10 @@ int YongKeyInput(int key,int mod)
 	{
 		return 0;
 	}
-	if((kp_mode==0 || im.EnglishMode) && (key&KEYM_MASK))
+	if((kp_mode==0 || im.EnglishMode) && (key&KEYM_KEYPAD))
 	{
-		key&=~KEYM_KEYPAD;
+		if(!(kpe_mode && key==YK_KP_ENTER))
+			key&=~KEYM_KEYPAD;
 	}
 	if(!is_sym_in_num(key&~(KEYM_ALT|KEYM_SHIFT)))
 	{
@@ -2140,7 +2130,7 @@ IMR_TEST:
 					return 1;
 				}
 			}
-			else if(key==key_commit || (enter_mode==2 && key==YK_ENTER && !im.EnglishMode))
+			else if(key==key_commit || (enter_mode==2 && key==YK_ENTER && !im.EnglishMode) || (kpe_mode==1 && key==YK_KP_ENTER))
 			{
 				char *p=eim->GetCandWord(eim->SelectIndex);
 				if(p)

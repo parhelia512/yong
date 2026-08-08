@@ -3,6 +3,7 @@
 
 #include "xim.h"
 #include "im.h"
+#include "llib.h"
 
 typedef struct{
 	int x,y;
@@ -22,6 +23,23 @@ typedef union{
 	};
 	uint32_t color;
 }UI_COLOR;
+
+typedef struct{
+	uint32_t len;
+	UI_COLOR color;
+	float x1,y1;
+	float x2,y2;
+}UI_SHADOW;
+
+typedef struct{
+	void *next;
+	char which[8];
+	void *image;
+	uint32_t anchor;
+	int w,h;
+	int off_x,off_y;
+	int z_index;
+}UI_PET;
 
 typedef struct{
 	/* scale factor */
@@ -46,10 +64,8 @@ typedef struct{
 	int auto_tran;
 	/* force use scale param */
 	int force_scale;
-	/* shadow size */
-	int shadow_size;
-	/* shadow clor */
-	UI_COLOR shadow_color;
+	/* shadow */
+	const char *shadow;
 }UI_MAIN;
 
 typedef struct{
@@ -120,10 +136,10 @@ typedef struct{
 	int force_scale;
 	/* bg first pad */
 	uint8_t pad[4];
-	/* shadow size */
-	int shadow_size;
+	/* shadow */
+	const char *shadow;
 	/* shadow clor */
-	UI_COLOR shadow_color;
+	LPtrArray *pets;
 }UI_INPUT;
 
 typedef struct{

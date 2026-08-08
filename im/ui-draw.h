@@ -64,8 +64,10 @@ typedef struct{
 	int x,y;
 	void *win;
 	cairo_t *dc;
+	cairo_matrix_t matrix;
 	double scale;
 	int tx,ty;
+	L_SDF_CONTEXT sdf;
 }DRAW_CONTEXT1;
 
 #endif
@@ -89,7 +91,7 @@ void ui_draw_text(DRAW_CONTEXT1 *ctx,UI_FONT font,int x,int y,const void *text,U
 void ui_draw_image(DRAW_CONTEXT1 *ctx,UI_IMAGE image,int x,int y);
 void ui_stretch_image(DRAW_CONTEXT1 *ctx,UI_IMAGE image,int x,int y,int w,int h);
 void ui_draw_image_full(DRAW_CONTEXT1 *ctx,UI_IMAGE image,int dx,int dy,int dw,int dh,int x,int y,int w,int h);
-void ui_draw_shadow(DRAW_CONTEXT1 *ctx,int radius,int size,UI_COLOR color);
+void ui_draw_shadow(DRAW_CONTEXT1 *ctx,int radius,UI_SHADOW *config);
 UI_FONT ui_font_parse(void *win,const char *s,double scale,double surface_scale);
 void ui_font_free(UI_FONT font);
 int ui_text_size(void *dc,UI_FONT font,const void*text,int *w,int *h);

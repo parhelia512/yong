@@ -241,6 +241,7 @@ static w_win_t wl_windows = NULL;
 
 // Global config debounce timer
 static guint wl_config_debounce_id = 0;
+static guint wl_config_done_id = 0;
 
 // Config debounce interval (ms)
 #define CONFIG_DEBOUNCE_INTERVAL 100
@@ -425,8 +426,6 @@ END:
 	cairo_destroy(cr);
 	// Submit the buffer to the compositor
 	struct wl_buffer *wl_buf = w_buffer_end_frame(win->buf);
-	// if(!strcmp(win->title,"main"))
-		// w_buffer_write_to_png(win->buf,"/tmp/main.png");
 	wl_surface_attach(win->surface, wl_buf, 0, 0);
 	wl_surface_damage_buffer(win->surface, 0, 0, buf_w, buf_h);
 	wl_surface_commit(win->surface);
@@ -466,6 +465,17 @@ static void trigger_window_config(w_win_t win)
 	win->config_debounce_id = g_timeout_add(CONFIG_DEBOUNCE_INTERVAL, window_config_debounce_cb, win);
 }
 
+static gboolean global_get_config_done_cb(gpointer data)
+{
+	wl_config_done_id = 0;
+	w_win_hide(root);
+
+	for(w_win_t win = wl_windows; win; win = win->next)
+		trigger_window_config(win);
+
+	return G_SOURCE_REMOVE;
+}
+
 // Global config debounce callback - update workarea and notify all windows
 static gboolean global_config_debounce_cb(gpointer data)
 {
@@ -474,13 +484,15 @@ static gboolean global_config_debounce_cb(gpointer data)
 	if(wl_debug)
 		fprintf(stderr, "[wui-wayland] global config debounce triggered\n");
 
+	if(wl_config_done_id)
+	{
+		wl_config_done_id=g_timeout_add(10,global_get_config_done_cb,NULL);
+	}
+
+	w_win_show(root);
+	wl_display_roundtrip(wl_display);
 	// Update workarea for all outputs
 	w_workarea_update(wl_outputs);
-
-	// Trigger config event for all windows
-	w_win_t win;
-	for(win = wl_windows; win; win = win->next)
-		trigger_window_config(win);
 
 	return G_SOURCE_REMOVE;
 }
@@ -1694,7 +1706,8 @@ int w_init(const char *id)
 	wl_region_add(wl_region_empty,0,0,0,0);
 
 	w_initialized = true;
-	root=w_win_create("root","toplevel",NULL);
+	root=w_win_create("root",wl_layer_shell?"layer":"toplevel",NULL);
+	w_win_resize(root,1,1);
 	return 0;
 }
 
@@ -2174,6 +2187,7 @@ int w_win_show(w_win_t win)
 	if(win->wl_info.role_type==W_ROLE_DEFAULT || win->wl_info.role_type==W_ROLE_POPUP)
 	{
 		wl_surface_commit(win->surface);
+		printf("commit show\n");
 	}
 	else if(win->wl_info.role_type==W_ROLE_LAYER)
 	{
@@ -2497,7 +2511,9 @@ int w_win_tran(w_win_t win,int tran)
 
 int w_win_preferred_size(w_win_t win,int *w,int *h)
 {
-	if(!wl_fractional_scale_manager)
+	if(!wl_fractional_scale_manager && !wl_fractional_scale_manager_v2)
+		return 0;
+	if(win->scale == (int)win->scale)
 		return 0;
 	int ox=0,oy=0;
 	if(win->decorated)
@@ -2507,22 +2523,28 @@ int w_win_preferred_size(w_win_t win,int *w,int *h)
 		ox = border * 2;
 		oy = border *2 + title_height;
 	}
-	for(int i=0;i<12;i++)
+	if(w)
 	{
-		int preferred=*w+ox+i;
-		if(((preferred*win->scale_num)%win->scale_denom)==0)
+		for(int i=0;i<12;i++)
 		{
-			*w=preferred-ox;
-			break;
+			int preferred=*w+ox+i;
+			if(((preferred*win->scale_num)%win->scale_denom)==0)
+			{
+				*w=preferred-ox;
+				break;
+			}
 		}
 	}
-	for(int i=0;i<12;i++)
+	if(h)
 	{
-		int preferred=*h+oy+i;
-		if(((preferred*win->scale_num)%win->scale_denom)==0)
+		for(int i=0;i<12;i++)
 		{
-			*h=preferred-oy;
-			break;
+			int preferred=*h+oy+i;
+			if(((preferred*win->scale_num)%win->scale_denom)==0)
+			{
+				*h=preferred-oy;
+				break;
+			}
 		}
 	}
 	return 0;

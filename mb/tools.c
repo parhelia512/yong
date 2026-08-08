@@ -4,7 +4,7 @@
 
 #define mb_hash_find(h,v) l_hash_table_find((h),(v))
 
-char *mb_key_conv2_r(struct y_mb *mb,uint16_t index,uint8_t *in);
+char *mb_key_conv2_r(struct y_mb *mb,uint16_t index,uint8_t *in,int *out_len);
 void mb_rule_dump(struct y_mb *mb,FILE *fp);
 int mb_load_data(struct y_mb *mb,FILE *fp,int dic);
 
@@ -22,7 +22,7 @@ int y_mb_pick(struct y_mb *mb,FILE *fp,int option,int clen,int dlen,int filter,c
 			char *code;
 			char *data;
 			struct y_mb_ci *cp;
-			code=mb_key_conv2_r(mb,index->index,it->code);				
+			code=mb_key_conv2_r(mb,index->index,it->code,NULL);				
 			cp=L_CPTR(it->phrase);
 			if(clen && clen!=strlen(code))
 			{
@@ -337,10 +337,9 @@ int y_mb_dump(struct y_mb *mb,FILE *fp,int option,int format,char *pre)
 		struct y_mb_item *it=L_CPTR(index->item);
 		while(it)
 		{
-			char *code;
 			char *data;
 			struct y_mb_ci *cp;
-			code=mb_key_conv2_r(mb,index->index,it->code);
+			char *code=mb_key_conv2_r(mb,index->index,it->code,NULL);
 			if(has_space)
 			{
 				for(int j=0;code[j]!=0;j++)
